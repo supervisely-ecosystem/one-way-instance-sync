@@ -1,11 +1,6 @@
 import pandas as pd
 import supervisely as sly
-from supervisely.app.widgets import (
-    Card,
-    Container,
-    Progress,
-    Table,
-)
+from supervisely.app.widgets import Card, Container, Progress, Table
 
 TEAM_ID = "id".upper()
 TEAM_NAME = "name".upper()
@@ -15,7 +10,7 @@ SELECT = "select".upper()
 
 columns = [TEAM_ID, TEAM_NAME, SELECT]
 lines = []
-table = Table(per_page=5, page_sizes=[5, 10, 15, 30, 50, 100], width="99%")
+table = Table(per_page=5, page_sizes=[5, 10, 15, 30, 50, 100], width="70%")
 table.hide()
 
 teams_progress = Progress(hide_on_finish=False)
@@ -31,12 +26,12 @@ card = Card(
 card.lock()
 
 
-def build_table(dst_api: sly.Api):
+def build_table(src_api: sly.Api):
     global table, lines
     table.hide()
     lines = []
     table.loading = True
-    teams = dst_api.team.get_list()
+    teams = src_api.team.get_list()
     with teams_progress(message="Fetching Teams", total=len(teams)) as pbar:
         teams_progress.show()
         for info in teams:
