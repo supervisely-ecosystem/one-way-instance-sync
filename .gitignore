@@ -1,0 +1,10 @@
+storage
+supervisely
+venv
+.venv
+src/debug
+.idea
+tokens.env
+test.py
+test_lj.py
+__pycache__
