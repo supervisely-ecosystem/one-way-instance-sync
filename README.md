@@ -1,5 +1,5 @@
 <div align="center" markdown>
-<img src="https://github.com/user-attachments/assets/42c63fc9-7137-4df6-9324-1690f420f0c5" />
+<img src="https://github.com/user-attachments/assets/a4a99dfc-2641-4fe6-924a-9ef3459d2d3c" />
   
 # One Way Instance Synchronization
 
