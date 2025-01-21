@@ -1,5 +1,5 @@
 <div align="center" markdown>
-<img src="https://github.com/supervisely-ecosystem/" />
+<img src="https://github.com/user-attachments/assets/42c63fc9-7137-4df6-9324-1690f420f0c5" />
   
 # One Way Instance Synchronization
 
