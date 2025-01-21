@@ -59,7 +59,12 @@ def connect():
     sly_address_input.disable()
 
     if connect_instance.text == "Reselect":
-        show_token.enable()
+        team_selector.table.hide()
+        entity_selector.ws_collapse.hide()
+        entity_selector.entities_collapse.hide()
+        entity_selector.start_sync.hide()
+        entity_selector.output_message.hide()
+        entity_selector.four_progress_visibility(False)
         team_selector.card.lock()
         entity_selector.card.lock()
         connect_instance.plain = False
@@ -148,33 +153,6 @@ def connect():
         sly_token_input.enable()
         sly_address_input.enable()
         return
-
-    # try:
-    #     f_root = g.src_api.user.get_info_by_id(1)
-    #     if f_root is None:
-    #         connect_message.set(
-    #             (
-    #                 "Provided API token doesn't have access to the root user. "
-    #                 "Please, provide token with root access."
-    #             ),
-    #             "error",
-    #         )
-    #         connect_message.show()
-    #         sly_token_input.enable()
-    #         sly_address_input.enable()
-    #         return
-    # except Exception:
-    #     connect_message.set(
-    #         (
-    #             "Provided API token doesn't have access to the root user. "
-    #             "Please, provide token with root access."
-    #         ),
-    #         "error",
-    #     )
-    #     connect_message.show()
-    #     sly_token_input.enable()
-    #     sly_address_input.enable()
-    #     return
 
     team_selector.build_table(g.src_api)
     team_selector.card.unlock()

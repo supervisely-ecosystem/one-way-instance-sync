@@ -54,13 +54,27 @@ members_field_password = Field(
 )
 members_container = Container(widgets=[members_field_password, members_scenario_field])
 
-start_import = Button("Start Synchronization")
-start_import.hide()
+start_sync = Button("Start Synchronization")
+start_sync.hide()
 
 import_progress_1 = Progress(hide_on_finish=False)
 import_progress_2 = Progress(hide_on_finish=False)
 import_progress_3 = Progress(hide_on_finish=True)
 import_progress_4 = Progress(hide_on_finish=True)
+
+
+def four_progress_visibility(visible: bool):
+    global import_progress_1, import_progress_2, import_progress_3, import_progress_4
+    if visible:
+        import_progress_1.show()
+        import_progress_2.show()
+        import_progress_3.show()
+        import_progress_4.show()
+    else:
+        import_progress_1.hide()
+        import_progress_2.hide()
+        import_progress_3.hide()
+        import_progress_4.hide()
 
 
 # Entities collapses
@@ -178,7 +192,7 @@ import_settings = Container(
     widgets=[
         reloadable_area,
         output_message,
-        start_import,
+        start_sync,
         import_progress_1,
         import_progress_2,
         import_progress_3,
@@ -208,7 +222,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         entities_collapse.set_active_panel(value=[])
         card.loading = True
 
-        start_import.hide()
+        start_sync.hide()
         output_message.hide()
         team_selector.table.disable()
 
@@ -230,13 +244,13 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         for ws in workspaces:
             projects = g.src_api.project.get_list(ws.id)
 
-            is_ws_already_exists = False
-            if is_team_already_exists:
-                existing_ws = g.dst_api.workspace.get_info_by_name(existing_team.id, ws.name)
-                if existing_ws is not None:
-                    is_ws_already_exists = True
-                    existing_projects = g.dst_api.project.get_list(existing_ws.id)
-                    existing_projects_names = [project.name for project in existing_projects]
+            # is_ws_already_exists = False
+            # if is_team_already_exists:
+            #     existing_ws = g.dst_api.workspace.get_info_by_name(existing_team.id, ws.name)
+            #     if existing_ws is not None:
+            #         is_ws_already_exists = True
+            #         existing_projects = g.dst_api.project.get_list(existing_ws.id)
+            # existing_projects_names = [project.name for project in existing_projects]
 
             ws_title = ws.name
             if len(projects) == 0:
@@ -244,19 +258,19 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
 
             projects_transfer = Transfer(titles=["Source Projects", "To Synchronize"])
             project_items = []
-            existing_project_keys = []
+            # existing_project_keys = []
             for project in projects:
                 project_item = Transfer.Item(key=project.id, label=project.name)
                 project_items.append(project_item)
-                if is_ws_already_exists:
-                    if project.name in existing_projects_names:
-                        if project.type != str(sly.ProjectType.IMAGES):
-                            project_item.disabled = True
-                            existing_project_keys.append(project.id)
+                # if is_ws_already_exists:
+                #     if project.name in existing_projects_names:
+                #         if project.type != str(sly.ProjectType.IMAGES):
+                #             project_item.disabled = True
+                #             existing_project_keys.append(project.id)
 
             projects_transfer.set_items(project_items)
-            if len(existing_project_keys) > 0:
-                projects_transfer.set_transferred_items(existing_project_keys)
+            # if len(existing_project_keys) > 0:
+            #     projects_transfer.set_transferred_items(existing_project_keys)
             ws_item = Collapse.Item(name=ws.id, title=ws_title, content=projects_transfer)
             ws_items.append(ws_item)
         ws_collapse.set_items(ws_items)
@@ -304,7 +318,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         members_collapse.show(), files_collapse.show(), entities_collapse.show()
 
         card.loading = False
-        start_import.show()
+        start_sync.show()
         pbar.update()
         card.unlock()
 
@@ -390,7 +404,7 @@ def connect_bucket():
     bucket_text_info.show()
 
 
-@start_import.click
+@start_sync.click
 def process_import():
     global team_id, need_password
     output_message.hide()

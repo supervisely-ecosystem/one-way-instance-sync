@@ -79,7 +79,7 @@ def download_upload_images(
     for p in images_paths:
         silent_remove(p)
 
-    res_images = []
+    dst_images = []
     if all([name in existing_images for name in images_names]):
         sly.logger.info("Current batch of images already exist in destination dataset. Skipping...")
         return [existing_images[name] for name in images_names]
@@ -94,60 +94,45 @@ def download_upload_images(
         for id, path, name, meta in zip(images_ids, images_paths, images_names, images_metas):
             if name in existing_images:
                 img = existing_images[name]
-                res_images.append(img)
+                dst_images.append(img)
             else:
                 missing_images_ids.append(id)
                 missing_images_paths.append(path)
                 missing_images_names.append(name)
                 missing_images_metas.append(meta)
-                # src_api.image.download_path(id, path)
-                # img = dst_api.image.upload_path(
-                #     dataset_id=dst_dataset.id,
-                #     name=name,
-                #     path=path,
-                #     meta=meta,
-                # )
-                # silent_remove(path)
-                # res_images.append(img)
         if missing_images_ids:
             download_paths_async_or_sync(
                 src_api, src_dataset.id, missing_images_ids, missing_images_paths
             )
-            # src_api.image.download_paths(missing_images_ids, missing_images_paths)
             imgs = dst_api.image.upload_paths(
                 dataset_id=dst_dataset.id,
                 names=missing_images_names,
                 paths=missing_images_paths,
                 metas=missing_images_metas,
             )
-            res_images.extend(imgs)
+            dst_images.extend(imgs)
             for m_path in missing_images_paths:
                 silent_remove(m_path)
-        return res_images
+        return dst_images
     if all([hash is not None for hash in images_hashs]):
         try:
             sly.logger.info("Attempting to upload images by hash.")
             valid_hashes = dst_api.image.check_existing_hashes(images_hashs)
             if len(valid_hashes) != len(images_hashs):
                 raise Exception("Some hashes are not valid.")
-            res_images = dst_api.image.upload_hashes(
+            dst_images = dst_api.image.upload_hashes(
                 dataset_id=dst_dataset.id,
                 names=images_names,
                 hashes=images_hashs,
                 metas=images_metas,
             )
-            return res_images
+            return dst_images
         except Exception as e:
             sly.logger.info(
                 f"Failed uploading images by hash. Attempting to upload images with paths."
             )
     download_paths_async_or_sync(src_api, src_dataset.id, images_ids, images_paths)
-    # src_api.image.download_paths(
-    #     dataset_id=src_dataset.id,
-    #     ids=images_ids,
-    #     paths=images_paths,
-    # )
-    res_images = dst_api.image.upload_paths(
+    dst_images = dst_api.image.upload_paths(
         dataset_id=dst_dataset.id,
         names=images_names,
         paths=images_paths,
@@ -155,7 +140,7 @@ def download_upload_images(
     )
     for p in images_paths:
         silent_remove(p)
-    return res_images
+    return dst_images
 
 
 def process_images(
@@ -260,25 +245,14 @@ def process_images(
                     existing_images,
                 )
 
-            res_images_ids = [image.id for image in dst_uploaded_images]
-
-            # check if need to update annotations for existing images
-            # if scenario == Scenario.CHECK and len(existing_images_list) != 0:
-            #     existing_to_update = []
-            #     for name, updated_at in zip(images_names, images_updated_at):
-            #         existing_image: ImageInfo = existing_images.get(name, None)
-            #         if existing_image is not None and existing_image.updated_at < updated_at:
-            #             existing_to_update.append(existing_image.id)
-            #     if len(existing_to_update) > 0:
-            #         res_images_ids.extend(existing_to_update)
-            #         res_images_ids = list(set(res_images_ids))
+            dst_images_ids = [image.id for image in dst_uploaded_images]
 
             annotations = src_api.annotation.download_json_batch(
                 dataset_id=src_dataset.id,
                 image_ids=images_ids,
                 force_metadata_for_links=False,
             )
-            dst_api.annotation.upload_jsons(img_ids=res_images_ids, ann_jsons=annotations)
+            dst_api.annotation.upload_jsons(img_ids=dst_images_ids, ann_jsons=annotations)
             pbar.update(len(images_batch) + pbar_correction)
 
 
@@ -309,25 +283,36 @@ def process_videos(
         for video in videos:
             if scenario == Scenario.CHECK:
                 if video.name in existing_videos:
+                    dst_video = existing_videos[video.name]
                     if video.updated_at <= existing_videos[video.name].updated_at:
                         pbar.update()
-                    continue
+                        continue
+                    else:
+                        dst_api.video.remove(dst_video.id)
             try:
                 if video.link is not None and is_fast_mode:
                     link = video.link
                     if need_change_link:
                         link = change_link(bucket_path, link)
-                    res_video = dst_api.video.upload_link(
-                        dataset_id=dst_dataset.id, link=link, name=video.name, skip_download=True
+                    dst_video = dst_api.video.upload_link(
+                        dataset_id=dst_dataset.id,
+                        link=link,
+                        name=video.name,
+                        skip_download=True,
                     )
                 elif video.hash is not None:
-                    res_video = dst_api.video.upload_hash(
+                    dst_video = dst_api.video.upload_hash(
                         dataset_id=dst_dataset.id, name=video.name, hash=video.hash
                     )
+                else:
+                    raise ValueError(f"No hash or link available for video '{video.name}'.")
             except Exception:
+                sly.logger.info(
+                    f"Failed to upload video '{video.name}' by hash or link. Attempting to upload video with path."
+                )
                 video_path = os.path.join(storage_dir, video.name)
                 src_api.video.download_path(id=video.id, path=video_path)
-                res_video = dst_api.video.upload_path(
+                dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
                     name=video.name,
                     path=video_path,
@@ -339,7 +324,8 @@ def process_videos(
             ann = sly.VideoAnnotation.from_json(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map
             )
-            dst_api.video.annotation.append(video_id=res_video.id, ann=ann, key_id_map=key_id_map)
+            dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
+
             pbar.update()
 
 
@@ -373,20 +359,29 @@ def process_volumes(
         for volume in volumes:
             if scenario == Scenario.CHECK:
                 if volume.name in existing_volumes:
+                    dst_volume = existing_volumes[volume.name]
                     if volume.updated_at <= existing_volumes[volume.name].updated_at:
                         pbar.update()
-                    continue
-            if volume.hash:
-                res_volume = dst_api.volume.upload_hash(
-                    dataset_id=dst_dataset.id,
-                    name=volume.name,
-                    hash=volume.hash,
-                    meta=volume.meta,
+                        continue
+                    else:
+                        dst_api.volume.remove(dst_volume.id)
+            try:
+                if volume.hash:
+                    dst_volume = dst_api.volume.upload_hash(
+                        dataset_id=dst_dataset.id,
+                        name=volume.name,
+                        hash=volume.hash,
+                        meta=volume.meta,
+                    )
+                else:
+                    raise ValueError(f"No hash available for volume '{volume.name}'.")
+            except Exception:
+                sly.logger.info(
+                    f"Failed to upload volume '{volume.name}' by hash. Attempting to upload volume with path."
                 )
-            else:
                 volume_path = os.path.join(storage_dir, volume.name)
                 src_api.volume.download_path(id=volume.id, path=volume_path)
-                res_volume = dst_api.volume.upload_nrrd_serie_path(
+                dst_volume = dst_api.volume.upload_nrrd_serie_path(
                     dataset_id=dst_dataset.id, name=volume.name, path=volume_path
                 )
                 silent_remove(volume_path)
@@ -396,7 +391,7 @@ def process_volumes(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map
             )
             dst_api.volume.annotation.append(
-                volume_id=res_volume.id, ann=ann, key_id_map=key_id_map
+                volume_id=dst_volume.id, ann=ann, key_id_map=key_id_map
             )
             if ann.spatial_figures:
                 geometries = []
@@ -443,18 +438,23 @@ def process_pcd(
                 if pcd.name in existing_pcds:
                     if pcd.updated_at <= existing_pcds[pcd.name].updated_at:
                         pbar.update()
-                    continue
-            if pcd.hash:
-                res_pcd = dst_api.pointcloud.upload_hash(
-                    dataset_id=dst_dataset.id,
-                    name=pcd.name,
-                    hash=pcd.hash,
-                    meta=pcd.meta,
-                )
-            else:
+                        continue
+                    else:
+                        dst_api.pointcloud.remove(dst_pcd.id)
+            try:
+                if pcd.hash:
+                    dst_pcd = dst_api.pointcloud.upload_hash(
+                        dataset_id=dst_dataset.id,
+                        name=pcd.name,
+                        hash=pcd.hash,
+                        meta=pcd.meta,
+                    )
+                else:
+                    raise ValueError(f"No hash available for point cloud '{pcd.name}'.")
+            except Exception:
                 pcd_path = os.path.join(storage_dir, pcd.name)
                 src_api.pointcloud.download_path(id=pcd.id, path=pcd_path)
-                res_pcd = dst_api.pointcloud.upload_path(
+                dst_pcd = dst_api.pointcloud.upload_path(
                     dataset_id=dst_dataset.id, name=pcd.name, path=pcd_path, meta=pcd.meta
                 )
                 silent_remove(pcd_path)
@@ -464,7 +464,7 @@ def process_pcd(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map_initial
             )
             dst_api.pointcloud.annotation.append(
-                pointcloud_id=res_pcd.id, ann=ann, key_id_map=key_id_map_new
+                pointcloud_id=dst_pcd.id, ann=ann, key_id_map=key_id_map_new
             )
             rel_images = src_api.pointcloud.get_list_related_images(id=pcd.id)
             if len(rel_images) != 0:
@@ -472,7 +472,7 @@ def process_pcd(
                 for rel_img in rel_images:
                     rimg_infos.append(
                         {
-                            ApiField.ENTITY_ID: res_pcd.id,
+                            ApiField.ENTITY_ID: dst_pcd.id,
                             ApiField.NAME: rel_img[ApiField.NAME],
                             ApiField.HASH: rel_img[ApiField.HASH],
                             ApiField.META: rel_img[ApiField.META],
@@ -518,30 +518,35 @@ def process_pcde(
                 if pcde.name in existing_pcdes:
                     if pcde.updated_at <= existing_pcdes[pcde.name].updated_at:
                         pbar.update()
-                    continue
-            if pcde.hash:
-                res_pcde = dst_api.pointcloud_episode.upload_hash(
-                    dataset_id=dst_dataset.id,
-                    name=pcde.name,
-                    hash=pcde.hash,
-                    meta=pcde.meta,
-                )
-            else:
+                        continue
+                    else:
+                        dst_api.pointcloud_episode.remove(dst_pcde.id)
+            try:
+                if pcde.hash:
+                    dst_pcde = dst_api.pointcloud_episode.upload_hash(
+                        dataset_id=dst_dataset.id,
+                        name=pcde.name,
+                        hash=pcde.hash,
+                        meta=pcde.meta,
+                    )
+                else:
+                    raise ValueError(f"No hash available for point cloud episode '{pcde.name}'.")
+            except Exception:
                 pcde_path = os.path.join(storage_dir, pcde.name)
                 src_api.pointcloud_episode.download_path(id=pcde.id, path=pcde_path)
-                res_pcde = dst_api.pointcloud_episode.upload_path(
+                dst_pcde = dst_api.pointcloud_episode.upload_path(
                     dataset_id=dst_dataset.id, name=pcde.name, path=pcde_path, meta=pcde.meta
                 )
                 silent_remove(pcde_path)
 
-            frame_to_pointcloud_ids[res_pcde.meta["frame"]] = res_pcde.id
+            frame_to_pointcloud_ids[dst_pcde.meta["frame"]] = dst_pcde.id
             rel_images = src_api.pointcloud_episode.get_list_related_images(id=pcde.id)
             if len(rel_images) != 0:
                 rimg_infos = []
                 for rel_img in rel_images:
                     rimg_infos.append(
                         {
-                            ApiField.ENTITY_ID: res_pcde.id,
+                            ApiField.ENTITY_ID: dst_pcde.id,
                             ApiField.NAME: rel_img[ApiField.NAME],
                             ApiField.HASH: rel_img[ApiField.HASH],
                             ApiField.META: rel_img[ApiField.META],
@@ -609,18 +614,18 @@ def import_workspaces(
             if len(ws_projects_map[workspace_id]) > 0
         ]
 
-    res_team = dst_api.team.get_info_by_name(team.name)
-    if res_team is None:
-        res_team = dst_api.team.create(team.name, description=team.description)
+    dst_team = dst_api.team.get_info_by_name(team.name)
+    if dst_team is None:
+        dst_team = dst_api.team.create(team.name, description=team.description)
 
     with progress_ws(
         message=f"Synchronizing workspaces for Team: {team.name}", total=len(workspaces)
     ) as pbar_ws:
         for workspace in workspaces:
-            res_workspace = dst_api.workspace.get_info_by_name(res_team.id, workspace.name)
-            if res_workspace is None:
-                res_workspace = dst_api.workspace.create(
-                    res_team.id, workspace.name, description=workspace.description
+            dst_workspace = dst_api.workspace.get_info_by_name(dst_team.id, workspace.name)
+            if dst_workspace is None:
+                dst_workspace = dst_api.workspace.create(
+                    dst_team.id, workspace.name, description=workspace.description
                 )
 
             if is_import_all_ws:
@@ -636,19 +641,20 @@ def import_workspaces(
             ) as pbar_pr:
                 for project in projects:
                     temp_ws_scenario = ws_scenario_value
-                    dst_project = dst_api.project.get_info_by_name(res_workspace.id, project.name)
+                    dst_project = dst_api.project.get_info_by_name(dst_workspace.id, project.name)
                     # if (
                     #     dst_project is not None
                     #     and dst_project.type != str(sly.ProjectType.IMAGES)
                     #     and temp_ws_scenario == Scenario.CHECK
                     # ):
-                    #     temp_ws_scenario = Scenario.IGNORE
+                    #     temp_ws_scenario = Scenario.REUPLOAD
                     #     sly.logger.info(
-                    #         "Changing synchronization scenario to 'ignore' for non-image projects."
+                    #         f"Changing synchronization scenario to 'reupload' for non-image projects '{dst_project.name}'."
                     #     )
+
                     if dst_project is None:
                         dst_project = dst_api.project.create(
-                            res_workspace.id,
+                            dst_workspace.id,
                             project.name,
                             description=project.description,
                             type=project.type,
@@ -656,7 +662,7 @@ def import_workspaces(
                     elif dst_project is not None and temp_ws_scenario == Scenario.REUPLOAD:
                         dst_api.project.remove(dst_project.id)
                         dst_project = dst_api.project.create(
-                            res_workspace.id,
+                            dst_workspace.id,
                             project.name,
                             description=project.description,
                             type=project.type,

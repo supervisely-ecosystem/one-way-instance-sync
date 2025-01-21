@@ -22,9 +22,7 @@ def import_team_members(
     foreign_team: TeamInfo = src_api.team.get_info_by_id(team_id)
     dst_team: TeamInfo = dst_api.team.get_info_by_name(foreign_team.name)
     if dst_team is None:
-        dst_team = dst_api.team.create(
-            name=foreign_team.name, description=foreign_team.description
-        )
+        dst_team = dst_api.team.create(name=foreign_team.name, description=foreign_team.description)
 
     existing_members: List[UserInfo] = dst_api.user.get_team_members(team_id=dst_team.id)
     existing_members_map = {
@@ -72,7 +70,7 @@ def add_member_to_team(
     pbar,
 ):
     if member.login in existing_members_map:
-        sly.logger.info(f'User: "{member.login}" already exists')
+        sly.logger.info(f"User: '{member.login}' already exists")
         if ignore_scenario:
             pbar.update()
             return
@@ -80,7 +78,7 @@ def add_member_to_team(
             dst_api.user.change_team_role(
                 existing_members_map[member.login]["id"], team.id, roles_map[member.role]
             )
-            sly.logger.info(f'User: "{member.login}" role has been changed')
+            sly.logger.info(f"User: '{member.login}' role has been changed")
     else:
         res_user = dst_api.user.get_info_by_login(member.login)
         if res_user is None:
@@ -92,7 +90,7 @@ def add_member_to_team(
                 email=member.email or "",
             )
         if res_user.disabled:
-            sly.logger.info(f'User: "{member.login}" is disabled. User will be ignored')
+            sly.logger.info(f"User: '{member.login}' is disabled. User will be ignored")
             pbar.update()
             return
         try:
@@ -100,5 +98,5 @@ def add_member_to_team(
         except:
             dst_api.user.add_to_team_by_login(member.login, team.id, roles_map["annotator"])
 
-        sly.logger.info(f'User: "{member.login}" has been added to team "{team.name}"')
+        sly.logger.info(f"User: '{member.login}' has been added to team '{team.name}'")
     pbar.update()
