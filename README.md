@@ -8,11 +8,11 @@
   <a href="#How-to-Use">How to Use</a>
 </p>
 
-[![](https://img.shields.io/badge/supervisely-ecosystem-brightgreen)](https://ecosystem.supervise.com/apps/supervisely-ecosystem/one-way-instance-sync)
-[![](https://img.shields.io/badge/slack-chat-green.svg?logo=slack)](https://supervise.com/slack)
+[![](https://img.shields.io/badge/supervisely-ecosystem-brightgreen)](https://ecosystem.supervisely.com/apps/supervisely-ecosystem/one-way-instance-sync)
+[![](https://img.shields.io/badge/slack-chat-green.svg?logo=slack)](https://supervisely.com/slack)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/supervisely-ecosystem/one-way-instance-sync)
-[![views](https://app.supervise.com/img/badges/views/supervisely-ecosystem/one-way-instance-sync)](https://supervise.com)
-[![runs](https://app.supervise.com/img/badges/runs/supervisely-ecosystem/one-way-instance-sync)](https://supervise.com)
+[![views](https://app.supervisely.com/img/badges/views/supervisely-ecosystem/one-way-instance-sync.png)](https://supervisely.com)
+[![runs](https://app.supervisely.com/img/badges/runs/supervisely-ecosystem/one-way-instance-sync.png)](https://supervisely.com)
 
 </div>
 
