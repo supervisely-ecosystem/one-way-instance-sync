@@ -82,7 +82,7 @@ ws_scenario_items = [
     RadioGroup.Item(value="ignore", label="Skip existing projects"),
     RadioGroup.Item(
         value="check",
-        label="Download missing and update outdated items (images projects only).",
+        label="Download missing and update outdated items",
     ),
     RadioGroup.Item(value="reupload", label="Remove and reupload existing projects"),
 ]
@@ -92,6 +92,7 @@ ws_scenario_field = Field(
     title="Synchronization Scenarios",
     description="Select how to handle existing projects",
 )
+ws_scenario.set_value(Scenario.CHECK)
 
 
 bucket_text_info = Text()

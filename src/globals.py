@@ -12,3 +12,5 @@ dst_api.headers.pop("x-task-id", None)
 
 src_api: sly.Api = None
 team_id = sly.env.team_id()
+
+boost_by_async = False  # placeholer for future use

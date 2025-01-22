@@ -2,7 +2,7 @@ import anyio
 import os
 import time
 import asyncio
-from typing import List, Dict
+from typing import List
 import supervisely as sly
 from urllib.parse import urlparse
 from supervisely import batched, KeyIdMap, DatasetInfo
@@ -14,6 +14,7 @@ from supervisely.api.video.video_api import VideoInfo
 from supervisely.api.volume.volume_api import VolumeInfo
 from supervisely.api.pointcloud.pointcloud_api import PointcloudInfo
 from supervisely.io.fs import mkdir, silent_remove
+from src.globals import boost_by_async
 
 BATCH_SIZE = 50
 
@@ -48,18 +49,22 @@ def retry_if_end_stream(func):
 
 
 def download_paths_async_or_sync(api: sly.Api, dataset_id: int, ids: List[int], paths: List[str]):
-    try:
-        download_coro = api.image.download_paths_async(ids, paths)
-        loop = sly.utils.get_or_create_event_loop()
-        if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(download_coro, loop=loop)
-            future.result()
-        else:
-            loop.run_until_complete(download_coro)
-    except Exception as e:
-        sly.logger.warning(
-            "Failed to download images asynchronously. Downloading images synchronously."
-        )
+    global boost_by_async
+    if boost_by_async:
+        try:
+            download_coro = api.image.download_paths_async(ids, paths)
+            loop = sly.utils.get_or_create_event_loop()
+            if loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(download_coro, loop=loop)
+                future.result()
+            else:
+                loop.run_until_complete(download_coro)
+        except Exception as e:
+            sly.logger.warning(
+                "Failed to download images asynchronously. Downloading images synchronously."
+            )
+            boost_by_async = False
+    if not boost_by_async:
         api.image.download_paths(dataset_id, ids, paths)
 
 
@@ -157,17 +162,17 @@ def process_images(
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
-    images: List[ImageInfo] = src_api.image.get_list(src_dataset.id)
+    src_images: List[ImageInfo] = src_api.image.get_list(src_dataset.id)
     existing_images_list = dst_api.image.get_list(dst_dataset.id)
     existing_images = {}
     for img in existing_images_list:
         existing_images[img.name] = img
 
     with progress_items(
-        message=f"Synchronizing images for Dataset: {src_dataset.name}", total=len(images)
+        message=f"Synchronizing images for Dataset: {src_dataset.name}", total=len(src_images)
     ) as pbar:
         pbar_correction = 0
-        for images_batch in batched(images, BATCH_SIZE):
+        for images_batch in batched(src_images, BATCH_SIZE):
             if scenario == Scenario.CHECK:
                 images_batch_download = []
                 for image in images_batch:
@@ -186,7 +191,7 @@ def process_images(
 
             images_links = []
             if is_fast_mode:
-                for image in images:
+                for image in src_images:
                     if image.link is not None:
                         link = image.link
                         if need_change_link:
@@ -271,56 +276,58 @@ def process_videos(
     storage_dir = "storage"
     mkdir(storage_dir, True)
     key_id_map = KeyIdMap()
-    videos: List[VideoInfo] = src_api.video.get_list(dataset_id=src_dataset.id, raw_video_meta=True)
+    src_videos: List[VideoInfo] = src_api.video.get_list(
+        dataset_id=src_dataset.id, raw_video_meta=True
+    )
     if scenario == Scenario.CHECK:
         existing_videos_list = dst_api.video.get_list(dst_dataset.id)
         existing_videos = {
             existing_video.name: existing_video for existing_video in existing_videos_list
         }
     with progress_items(
-        message=f"Synchronizing videos for Dataset: {src_dataset.name}", total=len(videos)
+        message=f"Synchronizing videos for Dataset: {src_dataset.name}", total=len(src_videos)
     ) as pbar:
-        for video in videos:
+        for src_video in src_videos:
             if scenario == Scenario.CHECK:
-                if video.name in existing_videos:
-                    dst_video = existing_videos[video.name]
-                    if video.updated_at <= existing_videos[video.name].updated_at:
+                if src_video.name in existing_videos:
+                    dst_video = existing_videos[src_video.name]
+                    if src_video.updated_at <= dst_video.updated_at:
                         pbar.update()
                         continue
                     else:
                         dst_api.video.remove(dst_video.id)
             try:
-                if video.link is not None and is_fast_mode:
-                    link = video.link
+                if src_video.link is not None and is_fast_mode:
+                    link = src_video.link
                     if need_change_link:
                         link = change_link(bucket_path, link)
                     dst_video = dst_api.video.upload_link(
                         dataset_id=dst_dataset.id,
                         link=link,
-                        name=video.name,
+                        name=src_video.name,
                         skip_download=True,
                     )
-                elif video.hash is not None:
+                elif src_video.hash is not None:
                     dst_video = dst_api.video.upload_hash(
-                        dataset_id=dst_dataset.id, name=video.name, hash=video.hash
+                        dataset_id=dst_dataset.id, name=src_video.name, hash=src_video.hash
                     )
                 else:
-                    raise ValueError(f"No hash or link available for video '{video.name}'.")
+                    raise ValueError(
+                        f"No hash or link available for video '{src_video.name}'."
+                        "Attempting to upload video with path."
+                    )
             except Exception:
-                sly.logger.info(
-                    f"Failed to upload video '{video.name}' by hash or link. Attempting to upload video with path."
-                )
-                video_path = os.path.join(storage_dir, video.name)
-                src_api.video.download_path(id=video.id, path=video_path)
+                video_path = os.path.join(storage_dir, src_video.name)
+                src_api.video.download_path(id=src_video.id, path=video_path)
                 dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
-                    name=video.name,
+                    name=src_video.name,
                     path=video_path,
-                    meta=video.meta,
+                    meta=src_video.meta,
                 )
                 silent_remove(video_path)
 
-            ann_json = src_api.video.annotation.download(video_id=video.id)
+            ann_json = src_api.video.annotation.download(video_id=src_video.id)
             ann = sly.VideoAnnotation.from_json(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map
             )
@@ -346,47 +353,47 @@ def process_volumes(
     key_id_map = KeyIdMap()
     geometries_dir = f"geometries_{src_dataset.id}"
     sly.fs.mkdir(geometries_dir, True)
-    volumes: List[VolumeInfo] = src_api.volume.get_list(dataset_id=src_dataset.id)
+    src_volumes: List[VolumeInfo] = src_api.volume.get_list(dataset_id=src_dataset.id)
     if scenario == Scenario.CHECK:
         existing_volumes_list = dst_api.volume.get_list(dst_dataset.id)
         existing_volumes = {
             existing_volume.name: existing_volume for existing_volume in existing_volumes_list
         }
     with progress_items(
-        message=f"Synchronizing volumes for Dataset: {src_dataset.name}", total=len(volumes)
+        message=f"Synchronizing volumes for Dataset: {src_dataset.name}", total=len(src_volumes)
     ) as pbar:
         # sly.download_volume_project
-        for volume in volumes:
+        for src_volume in src_volumes:
             if scenario == Scenario.CHECK:
-                if volume.name in existing_volumes:
-                    dst_volume = existing_volumes[volume.name]
-                    if volume.updated_at <= existing_volumes[volume.name].updated_at:
+                if src_volume.name in existing_volumes:
+                    dst_volume = existing_volumes[src_volume.name]
+                    if src_volume.updated_at <= dst_volume.updated_at:
                         pbar.update()
                         continue
                     else:
-                        dst_api.volume.remove(dst_volume.id)
+                        dst_api.video.remove(dst_volume.id)  # method works for any entity type
             try:
-                if volume.hash:
+                if src_volume.hash:
                     dst_volume = dst_api.volume.upload_hash(
                         dataset_id=dst_dataset.id,
-                        name=volume.name,
-                        hash=volume.hash,
-                        meta=volume.meta,
+                        name=src_volume.name,
+                        hash=src_volume.hash,
+                        meta=src_volume.meta,
                     )
                 else:
-                    raise ValueError(f"No hash available for volume '{volume.name}'.")
+                    raise ValueError(
+                        f"No hash available for volume '{src_volume.name}'."
+                        "Attempting to upload volume with path."
+                    )
             except Exception:
-                sly.logger.info(
-                    f"Failed to upload volume '{volume.name}' by hash. Attempting to upload volume with path."
-                )
-                volume_path = os.path.join(storage_dir, volume.name)
-                src_api.volume.download_path(id=volume.id, path=volume_path)
+                volume_path = os.path.join(storage_dir, src_volume.name)
+                src_api.volume.download_path(id=src_volume.id, path=volume_path)
                 dst_volume = dst_api.volume.upload_nrrd_serie_path(
-                    dataset_id=dst_dataset.id, name=volume.name, path=volume_path
+                    dataset_id=dst_dataset.id, name=src_volume.name, path=volume_path
                 )
                 silent_remove(volume_path)
 
-            ann_json = src_api.volume.annotation.download(volume_id=volume.id)
+            ann_json = src_api.volume.annotation.download(volume_id=src_volume.id)
             ann = sly.VolumeAnnotation.from_json(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map
             )
@@ -398,7 +405,7 @@ def process_volumes(
                 for sf in ann_json.get("spatialFigures"):
                     sf_id = sf.get("id")
                     path = os.path.join(geometries_dir, f"{sf_id}.nrrd")
-                    src_api.volume.figure.download_stl_meshes([sf_id], [path])
+                    src_api.volume.figure.download_sf_geometries([sf_id], [path])
                     with open(path, "rb") as file:
                         geometry_bytes = file.read()
                     geometries.append(geometry_bytes)
@@ -426,49 +433,54 @@ def process_pcd(
     mkdir(storage_dir, True)
     key_id_map_initial = KeyIdMap()
     key_id_map_new = KeyIdMap()
-    pcds: List[PointcloudInfo] = src_api.pointcloud.get_list(dataset_id=src_dataset.id)
+    src_pcds: List[PointcloudInfo] = src_api.pointcloud.get_list(dataset_id=src_dataset.id)
     if scenario == Scenario.CHECK:
         existing_pcds_list = dst_api.pointcloud.get_list(dst_dataset.id)
         existing_pcds = {existing_pcd.name: existing_pcd for existing_pcd in existing_pcds_list}
     with progress_items(
-        message=f"Synchronizing point clouds for Dataset: {src_dataset.name}", total=len(pcds)
+        message=f"Synchronizing point clouds for Dataset: {src_dataset.name}", total=len(src_pcds)
     ) as pbar:
-        for pcd in pcds:
+        for src_pcd in src_pcds:
             if scenario == Scenario.CHECK:
-                if pcd.name in existing_pcds:
-                    if pcd.updated_at <= existing_pcds[pcd.name].updated_at:
+                if src_pcd.name in existing_pcds:
+                    dst_pcd = existing_pcds[src_pcd.name]
+                    if src_pcd.updated_at <= dst_pcd.updated_at:
                         pbar.update()
                         continue
                     else:
-                        dst_api.pointcloud.remove(dst_pcd.id)
+                        dst_api.video.remove(dst_pcd.id)  # method works for any entity type
             try:
-                if pcd.hash:
+                if src_pcd.hash:
                     dst_pcd = dst_api.pointcloud.upload_hash(
                         dataset_id=dst_dataset.id,
-                        name=pcd.name,
-                        hash=pcd.hash,
-                        meta=pcd.meta,
+                        name=src_pcd.name,
+                        hash=src_pcd.hash,
+                        meta=src_pcd.meta,
                     )
                 else:
-                    raise ValueError(f"No hash available for point cloud '{pcd.name}'.")
+                    raise ValueError(
+                        f"No hash available for point cloud '{src_pcd.name}'."
+                        "Attempting to upload point cloud with path."
+                    )
             except Exception:
-                pcd_path = os.path.join(storage_dir, pcd.name)
-                src_api.pointcloud.download_path(id=pcd.id, path=pcd_path)
+                pcd_path = os.path.join(storage_dir, src_pcd.name)
+                src_api.pointcloud.download_path(id=src_pcd.id, path=pcd_path)
                 dst_pcd = dst_api.pointcloud.upload_path(
-                    dataset_id=dst_dataset.id, name=pcd.name, path=pcd_path, meta=pcd.meta
+                    dataset_id=dst_dataset.id, name=src_pcd.name, path=pcd_path, meta=src_pcd.meta
                 )
                 silent_remove(pcd_path)
 
-            ann_json = src_api.pointcloud.annotation.download(pointcloud_id=pcd.id)
+            ann_json = src_api.pointcloud.annotation.download(pointcloud_id=src_pcd.id)
             ann = sly.PointcloudAnnotation.from_json(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map_initial
             )
             dst_api.pointcloud.annotation.append(
                 pointcloud_id=dst_pcd.id, ann=ann, key_id_map=key_id_map_new
             )
-            rel_images = src_api.pointcloud.get_list_related_images(id=pcd.id)
+            rel_images = src_api.pointcloud.get_list_related_images(id=src_pcd.id)
             if len(rel_images) != 0:
                 rimg_infos = []
+                rimg_ids = []
                 for rel_img in rel_images:
                     rimg_infos.append(
                         {
@@ -478,7 +490,23 @@ def process_pcd(
                             ApiField.META: rel_img[ApiField.META],
                         }
                     )
-                dst_api.pointcloud.add_related_images(rimg_infos)
+                    rimg_ids.append(rel_img[ApiField.ID])
+                try:
+                    dst_api.pointcloud.add_related_images(rimg_infos)
+                except Exception:
+                    sly.logger.info(
+                        f"Failed to add related images to point cloud '{src_pcd.name}'."
+                        "Attempting to upload related images with paths."
+                    )
+                    rimg_paths = []
+                    for rimg_info, rimg_id in zip(rimg_infos, rimg_ids):
+                        rimg_path = os.path.join(storage_dir, rimg_info[ApiField.NAME])
+                        rimg_paths.append(rimg_path)
+                        src_api.pointcloud.download_related_image(id=rimg_id, path=rimg_path)
+                    dst_api.pointcloud.upload_related_images(rimg_paths)
+                    dst_api.pointcloud.add_related_images(rimg_infos)
+                    for rimg_path in rimg_paths:
+                        silent_remove(rimg_path)
 
             pbar.update()
 
@@ -498,7 +526,7 @@ def process_pcde(
     storage_dir = "storage"
     mkdir(storage_dir, True)
     key_id_map = KeyIdMap()
-    pcdes = src_api.pointcloud_episode.get_list(dataset_id=src_dataset.id)
+    src_pcdes = src_api.pointcloud_episode.get_list(dataset_id=src_dataset.id)
     ann_json = src_api.pointcloud_episode.annotation.download(dataset_id=src_dataset.id)
     ann = sly.PointcloudEpisodeAnnotation.from_json(
         data=ann_json, project_meta=meta, key_id_map=KeyIdMap()
@@ -511,38 +539,46 @@ def process_pcde(
     frame_to_pointcloud_ids = {}
     with progress_items(
         message=f"Synchronizing point cloud episodes for Dataset: {src_dataset.name}",
-        total=len(pcdes),
+        total=len(src_pcdes),
     ) as pbar:
-        for pcde in pcdes:
+        for src_pcde in src_pcdes:
             if scenario == Scenario.CHECK:
-                if pcde.name in existing_pcdes:
-                    if pcde.updated_at <= existing_pcdes[pcde.name].updated_at:
+                if src_pcde.name in existing_pcdes:
+                    dst_pcde = existing_pcdes[src_pcde.name]
+                    if src_pcde.updated_at <= dst_pcde.updated_at:
                         pbar.update()
                         continue
                     else:
-                        dst_api.pointcloud_episode.remove(dst_pcde.id)
+                        dst_api.video.remove(dst_pcde.id)  # method works for any entity type
             try:
-                if pcde.hash:
+                if src_pcde.hash:
                     dst_pcde = dst_api.pointcloud_episode.upload_hash(
                         dataset_id=dst_dataset.id,
-                        name=pcde.name,
-                        hash=pcde.hash,
-                        meta=pcde.meta,
+                        name=src_pcde.name,
+                        hash=src_pcde.hash,
+                        meta=src_pcde.meta,
                     )
                 else:
-                    raise ValueError(f"No hash available for point cloud episode '{pcde.name}'.")
+                    raise ValueError(
+                        f"No hash available for point cloud episode '{src_pcde.name}'."
+                        "Attempting to upload point cloud episode with path."
+                    )
             except Exception:
-                pcde_path = os.path.join(storage_dir, pcde.name)
-                src_api.pointcloud_episode.download_path(id=pcde.id, path=pcde_path)
+                pcde_path = os.path.join(storage_dir, src_pcde.name)
+                src_api.pointcloud_episode.download_path(id=src_pcde.id, path=pcde_path)
                 dst_pcde = dst_api.pointcloud_episode.upload_path(
-                    dataset_id=dst_dataset.id, name=pcde.name, path=pcde_path, meta=pcde.meta
+                    dataset_id=dst_dataset.id,
+                    name=src_pcde.name,
+                    path=pcde_path,
+                    meta=src_pcde.meta,
                 )
                 silent_remove(pcde_path)
 
             frame_to_pointcloud_ids[dst_pcde.meta["frame"]] = dst_pcde.id
-            rel_images = src_api.pointcloud_episode.get_list_related_images(id=pcde.id)
+            rel_images = src_api.pointcloud_episode.get_list_related_images(id=src_pcde.id)
             if len(rel_images) != 0:
                 rimg_infos = []
+                rimg_ids = []
                 for rel_img in rel_images:
                     rimg_infos.append(
                         {
@@ -552,7 +588,23 @@ def process_pcde(
                             ApiField.META: rel_img[ApiField.META],
                         }
                     )
-                dst_api.pointcloud_episode.add_related_images(rimg_infos)
+                    rimg_ids.append(rel_img[ApiField.ID])
+                try:
+                    dst_api.pointcloud_episode.add_related_images(rimg_infos)
+                except Exception:
+                    sly.logger.info(
+                        f"Failed to add related images to point cloud episode'{src_pcde.name}'."
+                        "Attempting to upload related images with paths."
+                    )
+                    rimg_paths = []
+                    for rimg_info, rimg_id in zip(rimg_infos, rimg_ids):
+                        rimg_path = os.path.join(storage_dir, rimg_info[ApiField.NAME])
+                        rimg_paths.append(rimg_path)
+                        src_api.pointcloud.download_related_image(id=rimg_id, path=rimg_path)
+                    dst_api.pointcloud.upload_related_images(rimg_paths)
+                    dst_api.pointcloud.add_related_images(rimg_infos)
+                    for rimg_path in rimg_paths:
+                        silent_remove(rimg_path)
             pbar.update()
 
         dst_api.pointcloud_episode.annotation.append(
