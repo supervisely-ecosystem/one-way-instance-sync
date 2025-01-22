@@ -15,6 +15,9 @@ from supervisely.api.volume.volume_api import VolumeInfo
 from supervisely.api.pointcloud.pointcloud_api import PointcloudInfo
 from supervisely.io.fs import mkdir, silent_remove
 from src.globals import boost_by_async
+import requests
+import src.globals as g
+from PIL import Image
 
 BATCH_SIZE = 50
 
@@ -29,6 +32,18 @@ class Scenario:
 def change_link(bucket_path: str, link: str):
     parsed_url = urlparse(link)
     return f"{bucket_path}{parsed_url.path}"
+
+
+def download_external_link(link: str, path: str):
+    try:
+        response = requests.get(link)
+        with open(path, "wb") as fo:
+            fo.write(response.content)
+        with Image.open(path) as img:
+            img.load()
+    except Exception as e:
+        sly.logger.warning(f"Failed to download image from external link: {link}.")
+        raise e
 
 
 def retry_if_end_stream(func):
@@ -80,9 +95,10 @@ def download_upload_images(
     images_metas: List[dict],
     images_hashs: List[str],
     existing_images,
+    already_downloaded_idx: List[int] = None,
 ):
-    for p in images_paths:
-        silent_remove(p)
+    # for p in images_paths:
+    #     silent_remove(p)
 
     dst_images = []
     if all([name in existing_images for name in images_names]):
@@ -106,9 +122,24 @@ def download_upload_images(
                 missing_images_names.append(name)
                 missing_images_metas.append(meta)
         if missing_images_ids:
-            download_paths_async_or_sync(
-                src_api, src_dataset.id, missing_images_ids, missing_images_paths
-            )
+            if already_downloaded_idx is not None and len(already_downloaded_idx) > 0:
+                filtered_ids = [
+                    id for i, id in enumerate(missing_images_ids) if i not in already_downloaded_idx
+                ]
+                filtered_paths = [
+                    path
+                    for i, path in enumerate(missing_images_paths)
+                    if i not in already_downloaded_idx
+                ]
+            else:
+                filtered_ids = missing_images_ids
+                filtered_paths = missing_images_paths
+            if len(filtered_ids) > 0:
+                for p in filtered_paths:
+                    silent_remove(p)
+                download_paths_async_or_sync(src_api, src_dataset.id, filtered_ids, filtered_paths)
+            else:
+                sly.logger.info("All images are already have been downloaded. Need just to upload.")
             imgs = dst_api.image.upload_paths(
                 dataset_id=dst_dataset.id,
                 names=missing_images_names,
@@ -136,7 +167,20 @@ def download_upload_images(
             sly.logger.info(
                 f"Failed uploading images by hash. Attempting to upload images with paths."
             )
-    download_paths_async_or_sync(src_api, src_dataset.id, images_ids, images_paths)
+    if already_downloaded_idx is not None and len(already_downloaded_idx) > 0:
+        filtered_ids = [id for i, id in enumerate(images_ids) if i not in already_downloaded_idx]
+        filtered_paths = [
+            path for i, path in enumerate(images_paths) if i not in already_downloaded_idx
+        ]
+    else:
+        filtered_ids = images_ids
+        filtered_paths = images_paths
+    if len(filtered_ids) > 0:
+        for p in filtered_paths:
+            silent_remove(p)
+        download_paths_async_or_sync(src_api, src_dataset.id, filtered_ids, filtered_paths)
+    else:
+        sly.logger.info("All images are already have been downloaded. Need just to upload.")
     dst_images = dst_api.image.upload_paths(
         dataset_id=dst_dataset.id,
         names=images_names,
@@ -188,42 +232,85 @@ def process_images(
             images_metas = [image.meta for image in images_batch]
             images_paths = [os.path.join(storage_dir, image_name) for image_name in images_names]
             images_hashs = [image.hash for image in images_batch]
+            images_links = [image.link for image in images_batch]
+            download_with_paths_idx = [idx for idx, link in enumerate(images_links) if link is None]
+            download_with_links_idx = [
+                idx for idx, link in enumerate(images_links) if link is not None
+            ]
+            images_links = [link for link in images_links if link is not None]
+            len_images_links = sum(1 for item in images_links if item is not None)
 
-            images_links = []
+            if is_fast_mode and need_change_link:
+                images_links = [change_link(bucket_path, link) for link in images_links]
+
+            dst_uploaded_images = []
             if is_fast_mode:
-                for image in src_images:
-                    if image.link is not None:
-                        link = image.link
-                        if need_change_link:
-                            link = change_link(bucket_path, link)
-                        images_links.append(link)
-
-            if len(images_links) == len(images_batch):
                 try:
-                    dst_uploaded_images = dst_api.image.upload_links(
-                        dataset_id=dst_dataset.id,
-                        names=images_names,
-                        links=images_links,
-                        metas=images_metas,
-                        force_metadata_for_links=False,
-                        skip_validation=False,
-                    )
-
-                    success = True
-                    for image in dst_uploaded_images:
-                        if image.width is None or image.height is None:
-                            success = False
-                            break
-                    if success is False:
-                        dst_api.image.remove_batch(ids=[image.id for image in dst_uploaded_images])
-                        sly.logger.warning(
-                            "Links are not accessible or invalid. Attempting to download images with paths"
-                        )
-                        raise Exception(
-                            "Links are not accessible or invalid. Attempting to download images with paths"
+                    if len_images_links > 0:
+                        images_names_updated = [images_names[i] for i in download_with_links_idx]
+                        images_metas_updated = [images_metas[i] for i in download_with_links_idx]
+                        dst_uploaded_images.extend(
+                            dst_api.image.upload_links(
+                                dataset_id=dst_dataset.id,
+                                names=images_names_updated,
+                                links=images_links,
+                                metas=images_metas_updated,
+                                force_metadata_for_links=True,
+                                skip_validation=False,
+                            )
                         )
 
+                        success = True
+                        for image in dst_uploaded_images:
+                            if image.width is None or image.height is None:
+                                success = False
+                                break
+                        if success is False:
+                            dst_api.image.remove_batch(
+                                ids=[image.id for image in dst_uploaded_images]
+                            )
+                            sly.logger.warning(
+                                "Links are not accessible or invalid. Attempting to download images with paths"
+                            )
+                            raise Exception(
+                                "Links are not accessible or invalid. Attempting to download images with paths"
+                            )
+                    if len(download_with_paths_idx) > 0:
+                        images_ids_updated = [images_ids[i] for i in download_with_paths_idx]
+                        images_names_updated = [images_names[i] for i in download_with_paths_idx]
+                        images_metas_updated = [images_metas[i] for i in download_with_paths_idx]
+                        images_paths_updated = [images_paths[i] for i in download_with_paths_idx]
+                        images_hashs_updated = [images_hashs[i] for i in download_with_paths_idx]
+
+                        dst_uploaded_images.extend(
+                            download_upload_images(
+                                src_api,
+                                dst_api,
+                                src_dataset,
+                                dst_dataset,
+                                images_ids_updated,
+                                images_paths_updated,
+                                images_names_updated,
+                                images_metas_updated,
+                                images_hashs_updated,
+                                existing_images,
+                            )
+                        )
                 except Exception:
+                    sly.logger.warning(
+                        "Failed to upload images by links. Attempting to download images with paths."
+                    )
+                    successfully_downloaded = []
+                    if len_images_links > 0:
+                        for idx, link in zip(download_with_links_idx, images_links):
+                            name = images_names[idx]
+                            path = os.path.join(storage_dir, name)
+                            if src_api.remote_storage.is_bucket_url(link):
+                                src_api.storage.download(g.src_team_id, link, path)
+                            else:
+                                download_external_link(link, path)
+                            successfully_downloaded.append(idx)
+
                     dst_uploaded_images = download_upload_images(
                         src_api,
                         dst_api,
@@ -235,8 +322,20 @@ def process_images(
                         images_metas,
                         images_hashs,
                         existing_images,
+                        successfully_downloaded,
                     )
             else:
+                successfully_downloaded = []
+                if len_images_links > 0:
+                    for idx, link in zip(download_with_links_idx, images_links):
+                        name = images_names[idx]
+                        path = os.path.join(storage_dir, name)
+                        if src_api.remote_storage.is_bucket_url(link):
+                            src_api.storage.download(g.src_team_id, link, path)
+                        else:
+                            download_external_link(link, path)
+                        successfully_downloaded.append(idx)
+
                 dst_uploaded_images = download_upload_images(
                     src_api,
                     dst_api,
@@ -248,16 +347,18 @@ def process_images(
                     images_metas,
                     images_hashs,
                     existing_images,
+                    successfully_downloaded,
                 )
 
             dst_images_ids = [image.id for image in dst_uploaded_images]
 
-            annotations = src_api.annotation.download_json_batch(
-                dataset_id=src_dataset.id,
-                image_ids=images_ids,
-                force_metadata_for_links=False,
-            )
-            dst_api.annotation.upload_jsons(img_ids=dst_images_ids, ann_jsons=annotations)
+            if len(dst_images_ids) > 0:
+                annotations = src_api.annotation.download_json_batch(
+                    dataset_id=src_dataset.id,
+                    image_ids=images_ids,
+                    force_metadata_for_links=False,
+                )
+                dst_api.annotation.upload_jsons(img_ids=dst_images_ids, ann_jsons=annotations)
             pbar.update(len(images_batch) + pbar_correction)
 
 
@@ -649,7 +750,8 @@ def import_workspaces(
     change_link_flag: bool = False,
     bucket_path: str = None,
 ):
-    team = src_api.team.get_info_by_id(team_id)
+    src_team = src_api.team.get_info_by_id(team_id)
+    g.src_team_id = team_id
 
     if is_import_all_ws:
         workspaces = src_api.workspace.get_list(team_id=team_id)
@@ -666,12 +768,12 @@ def import_workspaces(
             if len(ws_projects_map[workspace_id]) > 0
         ]
 
-    dst_team = dst_api.team.get_info_by_name(team.name)
+    dst_team = dst_api.team.get_info_by_name(src_team.name)
     if dst_team is None:
-        dst_team = dst_api.team.create(team.name, description=team.description)
+        dst_team = dst_api.team.create(src_team.name, description=src_team.description)
 
     with progress_ws(
-        message=f"Synchronizing workspaces for Team: {team.name}", total=len(workspaces)
+        message=f"Synchronizing workspaces for Team: {src_team.name}", total=len(workspaces)
     ) as pbar_ws:
         for workspace in workspaces:
             dst_workspace = dst_api.workspace.get_info_by_name(dst_team.id, workspace.name)

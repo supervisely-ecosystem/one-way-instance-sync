@@ -139,14 +139,26 @@ option_items = [
         value="slow",
         label="[Slow] Copy data between instances by reuploading",
         content=Empty(),
-    ),
+    )
+]
+option_items_coming_soon = [
     RadioGroup.Item(
         value="fast", label="[Fast] Copy data via links when possible", content=options_container
-    ),
+    )
 ]
 ws_options = RadioGroup(option_items, direction="vertical")
 ws_one_of = OneOf(ws_options)
-ws_options_container = Container(widgets=[ws_options, ws_one_of])
+
+ws_options_coming_soon = RadioGroup(option_items_coming_soon, direction="vertical")
+ws_options_coming_soon.disable()
+coming_soon_text = Text("← Coming soon")
+ws_options_coming_soon_container = Container(
+    widgets=[ws_options_coming_soon, coming_soon_text],
+    direction="horizontal",
+    fractions=[0, 1],
+)
+ws_options_container_one = Container(widgets=[ws_options, ws_options_coming_soon_container])
+ws_options_container = Container(widgets=[ws_options_container_one, ws_one_of])
 ws_field_transfer = Field(
     content=ws_options_container,
     title="Data Transfer Method",

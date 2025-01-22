@@ -14,3 +14,4 @@ src_api: sly.Api = None
 team_id = sly.env.team_id()
 
 boost_by_async = False  # placeholer for future use
+src_team_id = None
