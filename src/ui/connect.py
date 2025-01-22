@@ -82,6 +82,8 @@ def connect():
     if server_address == "" or server_address is None:
         connect_message.set("Supervisely instance address is empty", "error")
         connect_message.show()
+        sly_token_input.enable()
+        sly_address_input.enable()
         return
 
     if not server_address.startswith("http://") and not server_address.startswith("https://"):
