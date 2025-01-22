@@ -38,7 +38,7 @@ container = Container(
     ]
 )
 card = Card(
-    title="Connect to Supervisely instance",
+    title="Connect to Supervisely Instance",
     description="Instance with the source data which you want to import",
     content=container,
 )

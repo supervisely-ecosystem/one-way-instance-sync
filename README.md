@@ -8,116 +8,69 @@
   <a href="#How-to-Use">How to Use</a>
 </p>
 
-[![](https://img.shields.io/badge/supervisely-ecosystem-brightgreen)](https://ecosystem.supervise.com/apps/supervisely-ecosystem/copy-team-between-instances)
+[![](https://img.shields.io/badge/supervisely-ecosystem-brightgreen)](https://ecosystem.supervise.com/apps/supervisely-ecosystem/one-way-instance-sync)
 [![](https://img.shields.io/badge/slack-chat-green.svg?logo=slack)](https://supervise.com/slack)
-![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/supervisely-ecosystem/copy-team-between-instances)
-[![views](https://app.supervise.com/img/badges/views/supervisely-ecosystem/copy-team-between-instances)](https://supervise.com)
-[![runs](https://app.supervise.com/img/badges/runs/supervisely-ecosystem/copy-team-between-instances)](https://supervise.com)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/supervisely-ecosystem/one-way-instance-sync)
+[![views](https://app.supervise.com/img/badges/views/supervisely-ecosystem/one-way-instance-sync)](https://supervise.com)
+[![runs](https://app.supervise.com/img/badges/runs/supervisely-ecosystem/one-way-instance-sync)](https://supervise.com)
 
 </div>
 
 # Introduction
 
-Import Supervisely Team from one instance to another. All selected team members and workspaces will be imported.
+This application is designed for synchronizing data from one Supervisely instance to another. It allows syncing teams, workspaces, and their contents.
 
-App can be used **only by master user of the both instances**: current (where you run the app) and the one you want to import from.
+Important: Only a master user (admin) of both instances (the current one and the source instance) can use this application.
 
 </details>
 
 # How to Use
 
-## Step 1. Connect to Instance you want to import from
+## Step 1: Connect to the Source Instance
 
-![connect]()
+1. Enter the server address (URL of the source instance).
+2. Provide the API token (found in your profile settings on the source instance).
+3. Click the "Connect" button.
 
-1. Provide server address
+Once successfully connected, a list of available teams will be displayed.
 
-Copy server address from your browser address bar.
+## Step 2. Select a Team to Synchronize
 
-![server-address]()
+Click the "Select" button next to the team you want to synchronize.
 
-2. Provide API token. You can find it in your profile settings on the instance you want to import from.
+## Step 3. Select Entities to Synchronize
 
-Open instance you want to import from in browser and login as master user. Then go to your profile settings.
+### Workspaces
 
-![profile-settings]()
+Select the workspaces and projects you want to synchronize.
 
-Open API Token tab and copy your token to the app.
+If you need to sync all workspaces, enable the "Synchronize all workspaces" checkbox. Otherwise, you will need to select the projects to synchronize for each workspace manually.
 
-![profile-token]()
+#### Data Synchronization Options
 
-3. Press "Connect" button.
+Choose how to handle existing projects:
 
-![connect-success]()
+-   **Skip existing projects** – Only new projects will be synchronized; existing ones will be ignored.
+-   **Download missing and update outdated items** – New entities will be added, and existing ones will be updated if changes are detected.
+-   **Remove and reupload existing projects** – If a project already exists, it will be deleted and fully reuploaded from the source instance.
 
-## Step 2. Select team to import. Press on the "Select" button in the table of the team you want to import.
+#### Data Transfer Method
 
-![team-table]()
+-   **Slow** (Re-upload all files) – All data will be re-uploaded, regardless of how it was originally stored.
+-   **Fast** (Copy links if possible) – If the data is stored in the cloud, existing links will be used. If links are unavailable, files will be re-uploaded.
+    -   **Change Transfer Links** (for migrated cloud storage)<br>
+        If your data has been migrated to another cloud storage (e.g., from GCS to AWS), you can update transfer links by selecting the new provider and bucket.<br>
+        For example, if you moved your data from GCS to AWS while maintaining the same folder structure, you can use this option to replace old GCS links with new AWS links, ensuring seamless data transfer.
 
-## Step 3. Select Entities to import
+### Team Members
 
-There are three sections in the app each of them allows you to select and configure specific items that you want to import:
+Choose how to handle existing users:
 
-1. Workspaces
-2. Team Members
+-   **Keep existing roles unchanged** – Users' roles on the current instance will remain the same.
+-   **Update roles to match the source team** – Users' roles will be updated to match the source instance.
 
-![select-entities]()
+A default password can be set for newly created users.
 
-### 1. Workspaces
+## Step 4: Start Synchronization
 
-In this section you can select which workspaces you want to import.
-If you want to import all workspaces, check "Import all workspaces" checkbox, otherwise you can manually select specific projects in workspaces that you want to import.
-
-![entities-ws]()
-
-If the team you want to import already exists on the current instance, you might find projects in selector that are marked as disabled. It means that these project already exists in selected workspace and these projects will not be imported unless "Remove and reupload projects that already exists" option is selected.
-
-![ws-projects-exists]()
-
-**Workspace import options**
-
-There are a few options to select from when importing workspaces:
-
-1. Data Synchronization Scenarios - what to do if project with the same name already exists in the workspace you want to import to.
-
-    - Skip projects that already exists - ignore projects that already exists on the current instance.
-    - Remove and reupload projects that already exists - remove project from current instance and reupload it from the instance you want to import from.
-
-2. Data transfer - select how to import data from another instance based on original upload method.
-    - Copy data from instance to instance by reuploading (Slow) - completely reupload all data from another instance. Slow, but safe option.
-    - Copy data by links, if possible (Fast) - if your data is linked to cloud storage, these links will be used when transferring data. If those links don't exists anymore, data will not be validated, which can result in data loss. If data is not available by link, it will be reuploaded using default method. Fast but not safe option.
-
-If you want to copy data by links from cloud storage, but you migrated your data to another cloud storage you can use "Change transfer links for items" option. This option requires you to connect to cloud storage you want to use for data transfer.
-
-![change-link-connect]()
-
-Select provider, enter the bucket name and press "Connect" button. If you have successfully connected old cloud storage links will be replaced with new ones using new provider and bucket name.
-
-![change-link-connect-success]()
-
-For example you migrated your data from GCS to AWS **keeping the same folder structure** for your data. You can use this option to replace old GCS links with new AWS links.
-
-```text
- 'gcs://my-bucket/data/my_project/image_01.jpg' -> 's3://new-bucket/data/my_project/image_01.jpg'
-```
-
-Please notice that only provider and bucket name have changed, but folder structure for image is the same.
-
-### 2. Team Members
-
-In this section you can select which team members you want to import.
-
-You can see the list of team members and their roles on the instance you want to import from. Manually select specific team members that you want to import.
-
-If you see that some users are marked as disabled, it means that team that you want to import already exists on the current instance, and these users are already in this team and exists and they will not be imported. In case their roles are different, you can change them to match roles on the instance you are importing from.
-
-![entities-users]()
-
-If users you want to import are completely new to the current instance, they will be created with the role "annotator" and you need to specify default password for them. Don't forget to notify them about their new password.
-
-## Step 4. Start import
-
-Press "Start Import" button and wait for the app to transfer data between instances, once finished you will see the following message: "Data have been successfully imported.".
-You can finish the app or select another team to import.
-
-![import-success]()
+After configuring all options, click "Start Synchronization" to begin the process.

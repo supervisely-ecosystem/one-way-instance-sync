@@ -89,7 +89,7 @@ ws_scenario_items = [
 ws_scenario = RadioGroup(ws_scenario_items, direction="vertical")
 ws_scenario_field = Field(
     content=ws_scenario,
-    title="Synchronization Scenarios",
+    title="Data Synchronization Options",
     description="Select how to handle existing projects",
 )
 ws_scenario.set_value(Scenario.CHECK)
@@ -149,7 +149,7 @@ ws_one_of = OneOf(ws_options)
 ws_options_container = Container(widgets=[ws_options, ws_one_of])
 ws_field_transfer = Field(
     content=ws_options_container,
-    title="Data transfer",
+    title="Data Transfer Method",
     description="Select how you want to transfer data",
 )
 
@@ -208,7 +208,7 @@ card = Card(
     title="Select Source Entities",
     description="Entities you want to synchronize from the source to the local instance using the desired strategy",
     content=import_settings,
-    lock_message="Select Source Team from the table",
+    lock_message="Select Source Team",
 )
 card.lock()
 
