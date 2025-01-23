@@ -57,7 +57,9 @@ Choose how to handle existing projects:
 #### Data Transfer Method
 
 -   **Slow** (Re-upload all files) – All data will be re-uploaded, regardless of how it was originally stored.
--   **Fast** (Copy links if possible) – If the data is stored in the cloud, existing links will be used. If links are unavailable, files will be re-uploaded.
+
+-   ⏳Coming soon <br>
+    **Fast** (Copy links if possible) – If the data is stored in the cloud, existing links will be used. If links are unavailable, files will be re-uploaded.
     -   **Change Transfer Links** (for migrated cloud storage)<br>
         If your data has been migrated to another cloud storage (e.g., from GCS to AWS), you can update transfer links by selecting the new provider and bucket.<br>
         For example, if you moved your data from GCS to AWS while maintaining the same folder structure, you can use this option to replace old GCS links with new AWS links, ensuring seamless data transfer.
