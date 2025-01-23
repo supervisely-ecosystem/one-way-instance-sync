@@ -18,9 +18,9 @@
 
 # Introduction
 
-This application is designed for synchronizing data from one Supervisely instance to another. It allows syncing teams, workspaces, and their contents.
+This application is designed for synchronizing data from one Supervisely instance to another. It allows syncing teams, workspaces, and their projects.
 
-Important: Only a master user (admin) of both instances (the current one and the source instance) can use this application.
+Important: Only admin users of both instances (the current one and the source instance) can use this application.
 
 </details>
 
@@ -28,15 +28,19 @@ Important: Only a master user (admin) of both instances (the current one and the
 
 ## Step 1: Connect to the Source Instance
 
+The source instance is the main working instance where the data you do not want to change during experiments or tests is stored.
+
 1. Enter the server address (URL of the source instance).
 2. Provide the API token (found in your profile settings on the source instance).
 3. Click the "Connect" button.
 
 Once successfully connected, a list of available teams will be displayed.
 
+![Connect and Select Team](https://github.com/user-attachments/assets/cafd9af1-68f3-4855-9370-76b6ec879b8d)
+
 ## Step 2. Select a Team to Synchronize
 
-Click the "Select" button next to the team you want to synchronize.
+It is most convenient to use the search to find the desired team by name or ID. Then click the "Select" button next to the team you want to synchronize.
 
 ## Step 3. Select Entities to Synchronize
 
@@ -64,6 +68,8 @@ Choose how to handle existing projects:
         If your data has been migrated to another cloud storage (e.g., from GCS to AWS), you can update transfer links by selecting the new provider and bucket.<br>
         For example, if you moved your data from GCS to AWS while maintaining the same folder structure, you can use this option to replace old GCS links with new AWS links, ensuring seamless data transfer.
 
+![2-workspace](https://github.com/user-attachments/assets/6bccd509-2653-4f46-8250-c22cf841b3b8)
+
 ### Team Members
 
 Choose how to handle existing users:
@@ -73,6 +79,10 @@ Choose how to handle existing users:
 
 A default password can be set for newly created users.
 
+![2-workspace](https://github.com/user-attachments/assets/3a5efaab-d6d7-4b13-b885-cc2aff441cea)
+
 ## Step 4: Start Synchronization
 
 After configuring all options, click "Start Synchronization" to begin the process.
+
+Upon completion of the process, the user who launched the application and performed the synchronization will have a copy of the team from the source instance with the selected workspaces, projects, and roles.
