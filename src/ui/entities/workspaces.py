@@ -16,6 +16,7 @@ from supervisely.api.pointcloud.pointcloud_api import PointcloudInfo
 from supervisely.io.fs import mkdir, silent_remove
 from src.globals import boost_by_async
 import requests
+import subprocess
 import src.globals as g
 from PIL import Image
 
@@ -34,7 +35,7 @@ def change_link(bucket_path: str, link: str):
     return f"{bucket_path}{parsed_url.path}"
 
 
-def download_external_link(link: str, path: str):
+def download_image_external_link(link: str, path: str):
     try:
         response = requests.get(link)
         with open(path, "wb") as fo:
@@ -43,6 +44,24 @@ def download_external_link(link: str, path: str):
             img.load()
     except Exception as e:
         sly.logger.warning(f"Failed to download image from external link: {link}.")
+        raise e
+
+
+def download_video_external_link(link: str, path: str):
+    try:
+        response = requests.get(link)
+        with open(path, "wb") as fo:
+            fo.write(response.content)
+
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"The video file '{path}' is corrupted.")
+    except Exception as e:
+        sly.logger.warning(f"Failed to download video from external link: {link}.")
         raise e
 
 
@@ -308,7 +327,7 @@ def process_images(
                             if src_api.remote_storage.is_bucket_url(link):
                                 src_api.storage.download(g.src_team_id, link, path)
                             else:
-                                download_external_link(link, path)
+                                download_image_external_link(link, path)
                             successfully_downloaded.append(idx)
 
                     dst_uploaded_images = download_upload_images(
@@ -333,7 +352,7 @@ def process_images(
                         if src_api.remote_storage.is_bucket_url(link):
                             src_api.storage.download(g.src_team_id, link, path)
                         else:
-                            download_external_link(link, path)
+                            download_image_external_link(link, path)
                         successfully_downloaded.append(idx)
 
                 dst_uploaded_images = download_upload_images(
@@ -419,7 +438,22 @@ def process_videos(
                     )
             except Exception:
                 video_path = os.path.join(storage_dir, src_video.name)
-                src_api.video.download_path(id=src_video.id, path=video_path)
+                download_path = True
+                if src_video.link is not None:
+                    try:
+                        if src_api.remote_storage.is_bucket_url(src_video.link):
+                            src_api.storage.download(g.src_team_id, src_video.link, video_path)
+                        else:
+                            download_video_external_link(src_video.link, video_path)
+                        download_path = False
+                    except Exception:
+                        sly.logger.warning(
+                            f"Failed to download video via link: {src_video.link}."
+                            "Attempting to download video with path."
+                        )
+                        download_path = True
+                if download_path:
+                    src_api.video.download_path(id=src_video.id, path=video_path)
                 dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
                     name=src_video.name,
