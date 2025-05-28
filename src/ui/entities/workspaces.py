@@ -462,7 +462,8 @@ def process_videos(
                     )
             except Exception:
                 src_name = Path(src_video.name)
-                video_path = str(Path(storage_dir, src_name.with_suffix(src_name.suffix.lower())))
+                src_name = src_name.with_suffix(src_name.suffix.lower())
+                video_path = str(Path(storage_dir, src_name))
                 download_path = True
                 if src_video.link is not None:
                     try:
@@ -493,7 +494,7 @@ def process_videos(
                     result_path = video_path
                 dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
-                    name=src_video.name,
+                    name=src_name,
                     path=result_path,
                     meta=src_video.meta,
                 )
