@@ -20,6 +20,7 @@ import requests
 import subprocess
 import src.globals as g
 from PIL import Image
+from pathlib import Path
 
 BATCH_SIZE = 50
 
@@ -460,7 +461,8 @@ def process_videos(
                         "Attempting to upload video with path."
                     )
             except Exception:
-                video_path = os.path.join(storage_dir, src_video.name)
+                src_name = Path(src_video.name)
+                video_path = str(Path(storage_dir, src_name.with_suffix(src_name.suffix.lower())))
                 download_path = True
                 if src_video.link is not None:
                     try:
