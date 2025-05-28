@@ -494,7 +494,7 @@ def process_videos(
                     result_path = video_path
                 dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
-                    name=src_name,
+                    name=str(src_name),
                     path=result_path,
                     meta=src_video.meta,
                 )
