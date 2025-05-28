@@ -94,7 +94,7 @@ ws_scenario_field = Field(
 )
 ws_scenario.set_value(Scenario.CHECK)
 
-
+transcode_videos_checkbox = Checkbox("Transcode videos", False)
 bucket_text_info = Text()
 connect_to_bucket = Button(text="Connect to bucket", icon="zmdi zmdi-cloud")
 connect_bucket_flexbox = Flexbox(widgets=[connect_to_bucket, bucket_text_info])
@@ -173,7 +173,7 @@ workspaces_counter.hide()
 ws_inport_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
 
 ws_container = Container(
-    widgets=[ws_inport_container, ws_collapse, ws_scenario_field, ws_field_transfer]
+    widgets=[ws_inport_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
 )
 ws_collapse.hide()
 
@@ -334,6 +334,11 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         start_sync.show()
         pbar.update()
         card.unlock()
+
+@transcode_videos_checkbox.value_changed
+def transcode_videos_changed(is_checked: bool):
+    g.transcode_videos = is_checked
+    sly.logger.debug("Option 'Transcode videos' changed", extra={"is_checked": is_checked})
 
 
 @ws_import_checkbox.value_changed

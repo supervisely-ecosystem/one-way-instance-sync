@@ -2,6 +2,7 @@ import anyio
 import os
 import time
 import asyncio
+import shutil
 from typing import List
 import supervisely as sly
 from urllib.parse import urlparse
@@ -34,6 +35,28 @@ def change_link(bucket_path: str, link: str):
     parsed_url = urlparse(link)
     return f"{bucket_path}{parsed_url.path}"
 
+def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_codec: str = "aac"):    
+    pcs = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            path,
+            "-c:v",
+            f"{video_codec}",
+            "-c:a",
+            f"{audio_codec}",
+            "-vsync",
+            "cfr",
+            output_path,
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if pcs.returncode != 0:
+        raise RuntimeError(pcs.stderr)
+    return output_path
 
 def download_image_external_link(link: str, path: str):
     try:
@@ -454,20 +477,34 @@ def process_videos(
                         download_path = True
                 if download_path:
                     src_api.video.download_path(id=src_video.id, path=video_path)
+                if g.transcode_videos:
+                    try:
+                        output_path = _transcode(video_path, video_path + "_transcoded.mp4")
+                    except Exception:
+                        sly.logger.warning(
+                            "Failed to transcode video: %s. It will be skipped.", video_path, exc_info=True
+                        )
+                    else:
+                        result_path = video_path if video_path.endswith(".mp4") else video_path + ".mp4"
+                        shutil.move(output_path, result_path)
+                else:
+                    result_path = video_path
                 dst_video = dst_api.video.upload_path(
                     dataset_id=dst_dataset.id,
                     name=src_video.name,
-                    path=video_path,
+                    path=result_path,
                     meta=src_video.meta,
                 )
                 silent_remove(video_path)
+                silent_remove(result_path)
 
             ann_json = src_api.video.annotation.download(video_id=src_video.id)
             ann = sly.VideoAnnotation.from_json(
                 data=ann_json, project_meta=meta, key_id_map=key_id_map
             )
             dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
-
+            if src_video.custom_data is not None and len(src_video.custom_data) > 0:
+                dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
             pbar.update()
 
 

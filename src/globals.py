@@ -15,3 +15,5 @@ team_id = sly.env.team_id()
 
 boost_by_async = False  # placeholer for future use
 src_team_id = None
+
+transcode_videos = False
