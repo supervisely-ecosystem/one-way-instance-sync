@@ -461,7 +461,8 @@ def process_videos(
                         "Attempting to upload video with path."
                     )
             except Exception:
-                video_path = str(Path(storage_dir) / Path(src_video.name).with_suffix(Path(src_video.name).suffix.lower()))
+                src_name = Path(src_video.name)
+                video_path = str(Path(storage_dir, src_name.with_suffix(src_name.suffix.lower())))
                 download_path = True
                 if src_video.link is not None:
                     try:
