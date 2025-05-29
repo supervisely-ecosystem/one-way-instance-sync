@@ -10,6 +10,8 @@ dst_api: sly.Api = sly.Api()
 # remove x-task-id header
 dst_api.headers.pop("x-task-id", None)
 
+dst_api_task: sly.Api = sly.Api() # uses for operations that require task context
+
 src_api: sly.Api = None
 team_id = sly.env.team_id()
 

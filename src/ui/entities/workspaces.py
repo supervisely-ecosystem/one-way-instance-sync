@@ -492,7 +492,7 @@ def process_videos(
                         shutil.move(output_path, result_path)
                 else:
                     result_path = video_path
-                dst_video = dst_api.video.upload_path(
+                dst_video = g.dst_api_task.video.upload_path(
                     dataset_id=dst_dataset.id,
                     name=str(src_name),
                     path=result_path,
