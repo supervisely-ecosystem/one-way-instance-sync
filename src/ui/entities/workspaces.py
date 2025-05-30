@@ -21,6 +21,7 @@ import subprocess
 import src.globals as g
 from PIL import Image
 from pathlib import Path
+import tempfile
 
 BATCH_SIZE = 50
 
@@ -58,6 +59,22 @@ def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_
     if pcs.returncode != 0:
         raise RuntimeError(pcs.stderr)
     return output_path
+
+def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
+    """
+    Save the skipped file information as a file with the name which contains source information.
+    """    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=True) as temp_file:
+        try:
+            save_path = os.path.join(
+                g.logs_tf_path, f"DS_({video_info.dataset_id})_V_({video_info.id})_({video_info.name}).json"
+            )
+            api.file.upload(1, temp_file.name, save_path)
+        except Exception as e:
+            sly.logger.warning(
+                f"Failed to upload unprocessed video info for video {video_info.name} with ID {video_info.id}.",
+                exc_info=True,
+            )
 
 def download_image_external_link(link: str, path: str):
     try:
@@ -531,6 +548,7 @@ def process_videos(
                     exc_info=True,
                 )
                 g.dst_api_task.video.remove(dst_video.id)
+                _log_skipped_video(dst_api, src_video)
             pbar.update()
 
 
