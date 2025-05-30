@@ -432,9 +432,13 @@ def process_videos(
         message=f"Synchronizing videos for Dataset: {src_dataset.name}", total=len(src_videos)
     ) as pbar:
         for src_video in src_videos:
+            src_name = Path(src_video.name)
+            src_name = src_name.with_suffix(src_name.suffix.lower())
+            src_name_str = str(src_name)
+            sly.logger.debug(f"Adjusted video extension in {src_video.name} to lower case: {src_name_str}")
             if scenario == Scenario.CHECK:
-                if src_video.name in existing_videos:
-                    dst_video = existing_videos[src_video.name]
+                if src_name_str in existing_videos:
+                    dst_video = existing_videos[src_name_str]
                     if src_video.updated_at <= dst_video.updated_at:
                         pbar.update()
                         continue
@@ -448,21 +452,19 @@ def process_videos(
                     dst_video = dst_api.video.upload_link(
                         dataset_id=dst_dataset.id,
                         link=link,
-                        name=src_video.name,
+                        name=src_name_str,
                         skip_download=True,
                     )
                 elif src_video.hash is not None:
                     dst_video = dst_api.video.upload_hash(
-                        dataset_id=dst_dataset.id, name=src_video.name, hash=src_video.hash
+                        dataset_id=dst_dataset.id, name=src_name_str, hash=src_video.hash
                     )
                 else:
                     raise ValueError(
-                        f"No hash or link available for video '{src_video.name}'."
+                        f"No hash or link available for video '{src_name_str}'."
                         "Attempting to upload video with path."
                     )
             except Exception:
-                src_name = Path(src_video.name)
-                src_name = src_name.with_suffix(src_name.suffix.lower())
                 video_path = str(Path(storage_dir, src_name))
                 download_path = True
                 if src_video.link is not None:
@@ -478,36 +480,57 @@ def process_videos(
                             "Attempting to download video with path."
                         )
                         download_path = True
+                
                 if download_path:
                     src_api.video.download_path(id=src_video.id, path=video_path)
+                
                 if g.transcode_videos:
                     try:
                         output_path = _transcode(video_path, video_path + "_transcoded.mp4")
                     except Exception:
                         sly.logger.warning(
-                            "Failed to transcode video: %s. It will be skipped.", video_path, exc_info=True
+                            "Failed to transcode video: %s. Process will be skipped.", video_path, exc_info=True
                         )
+                        result_path = video_path
                     else:
                         result_path = video_path if video_path.endswith(".mp4") else video_path + ".mp4"
                         shutil.move(output_path, result_path)
                 else:
                     result_path = video_path
-                dst_video = g.dst_api_task.video.upload_path(
-                    dataset_id=dst_dataset.id,
-                    name=str(src_name),
-                    path=result_path,
-                    meta=src_video.meta,
-                )
-                silent_remove(video_path)
-                silent_remove(result_path)
+                try:
+                    dst_video = g.dst_api_task.video.upload_path(
+                        dataset_id=dst_dataset.id,
+                        name=src_name_str,
+                        path=result_path,
+                        meta=src_video.meta,
+                    )
+                except Exception as e:
+                    sly.logger.warning(
+                        f"Failed to upload source video '{src_video.id}: {src_name_str}' to "
+                        f"destination dataset '{dst_dataset.id}: {dst_dataset.name}'. Skipping",
+                        exc_info=True,
+                    )
+                    pbar.update()
+                    continue
+                finally:
+                    silent_remove(video_path)
+                    silent_remove(result_path)
 
-            ann_json = src_api.video.annotation.download(video_id=src_video.id)
-            ann = sly.VideoAnnotation.from_json(
-                data=ann_json, project_meta=meta, key_id_map=key_id_map
-            )
-            dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
-            if src_video.custom_data is not None and len(src_video.custom_data) > 0:
-                dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
+            try:
+                ann_json = src_api.video.annotation.download(video_id=src_video.id)
+                ann = sly.VideoAnnotation.from_json(
+                    data=ann_json, project_meta=meta, key_id_map=key_id_map
+                )
+                dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
+                if src_video.custom_data is not None and len(src_video.custom_data) > 0:
+                    dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
+            except Exception as e:
+                sly.logger.warning(
+                    f"Failed to upload annotation for video '{src_name_str}'."
+                    "Skipping annotation upload and deleting video.",
+                    exc_info=True,
+                )
+                g.dst_api_task.video.remove(dst_video.id)
             pbar.update()
 
 
