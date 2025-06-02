@@ -20,7 +20,7 @@ def safe_check_autorestart():
             
         autorestart =  AutoRestartInfo.check_autorestart(entity_selector.g.dst_api_task, entity_selector.g.task_id)
         sly.logger.debug("Autorestart info checked")
-        if autorestart is not None:
+        if autorestart is not None and autorestart.deploy_params.get("autorestart"):
             try:
                 log_params = {item: value for item, value in autorestart.deploy_params.items() if item != "src_token"}
                 sly.logger.info("Autorestart detected, applying deploy params: ", extra=log_params)

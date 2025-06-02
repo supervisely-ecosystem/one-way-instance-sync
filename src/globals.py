@@ -22,3 +22,5 @@ src_team_id = None
 transcode_videos = False
 
 logs_tf_path = "one-way-instance-sync/logs"
+
+autorestart = False

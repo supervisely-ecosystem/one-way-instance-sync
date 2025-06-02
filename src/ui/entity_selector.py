@@ -62,6 +62,8 @@ members_field_password = Field(
 )
 members_container = Container(widgets=[members_field_password, members_scenario_field])
 
+autorestart_checkbox = Checkbox("Enable Auto-Restart")
+autorestart_checkbox.hide()
 start_sync = Button("Start Synchronization")
 start_sync.hide()
 
@@ -213,6 +215,7 @@ import_settings = Container(
     widgets=[
         reloadable_area,
         output_message,
+        autorestart_checkbox,
         start_sync,
         import_progress_1,
         import_progress_2,
@@ -243,6 +246,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         entities_collapse.set_active_panel(value=[])
         card.loading = True
 
+        autorestart_checkbox.hide()
         start_sync.hide()
         output_message.hide()
         team_selector.table.disable()
@@ -339,6 +343,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         members_collapse.show(), files_collapse.show(), entities_collapse.show()
 
         card.loading = False
+        autorestart_checkbox.show()
         start_sync.show()
         pbar.update()
         card.unlock()
@@ -435,6 +440,7 @@ def get_deploy_params():
     
     # Basic parameters
     deploy_params = {
+        "autorestart": g.autorestart,
         "team_id": team_id,
         "transcode_videos": g.transcode_videos,
         "ws_scenario": ws_scenario.get_value(),
@@ -475,23 +481,31 @@ def get_deploy_params():
 
     return deploy_params
 
+@autorestart_checkbox.value_changed
+def set_autorestart(is_checked: bool):
+    if is_checked:
+        g.autorestart = True
+    else:
+        g.autorestart = False
+
 @start_sync.click
 def process_import():
     global team_id, need_password
     output_message.hide()
     
-    try:
-        deploy_params = get_deploy_params()
-        autorestart = ar.AutoRestartInfo.check_autorestart(g.dst_api_task, g.task_id)
-        if autorestart is None:
-            sly.logger.debug("Autorestart info is not set. Creating new one.")
-            autorestart = ar.AutoRestartInfo(deploy_params)
-        elif autorestart.is_changed(deploy_params):
-            sly.logger.debug("Autorestart info is changed. Updating.")
-            autorestart.deploy_params.update(deploy_params)
-        g.dst_api_task.task.set_fields(g.task_id, autorestart.generate_fields())
-    except Exception as e:
-         sly.logger.warning(f"Failed to update autorestart info: {repr(e)}")
+    if g.autorestart:
+        try:
+            deploy_params = get_deploy_params()
+            autorestart = ar.AutoRestartInfo.check_autorestart(g.dst_api_task, g.task_id)
+            if autorestart is None:
+                sly.logger.debug("Autorestart info is not set. Creating new one.")
+                autorestart = ar.AutoRestartInfo(deploy_params)
+            elif autorestart.is_changed(deploy_params):
+                sly.logger.debug("Autorestart info is changed. Updating.")
+                autorestart.deploy_params.update(deploy_params)
+            g.dst_api_task.task.set_fields(g.task_id, autorestart.generate_fields())
+        except Exception as e:
+            sly.logger.warning(f"Failed to update autorestart info: {repr(e)}")
     
     try:
         # import workspaces
@@ -592,6 +606,7 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     connect_button.icon = "zmdi zmdi-rotate-left"
     connect_button.plain = True
     connect_message.show()
+    autorestart_checkbox.check()
     # output_message.hide()
     
     deploy_params = autorestart.deploy_params
