@@ -566,12 +566,16 @@ def process_import():
 def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     """Process import using parameters from autorestart without getting new parameters"""
     
+    sly.logger.debug("Processing import from autorestart.")
+
     output_message.hide()
     
     deploy_params = autorestart.deploy_params
     
     src_team_id = deploy_params.get("team_id")
     g.src_api = sly.Api(server_address=deploy_params.get("src_server"), token=deploy_params.get("src_token"))
+    sly.logger.debug("Source API initialized")
+
     try:
         # pass all validations and start import
         entities_collapse.set_active_panel(value=[])

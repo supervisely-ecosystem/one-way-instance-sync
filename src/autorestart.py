@@ -45,7 +45,7 @@ class AutoRestartInfo:
                 )
                 autorestart = AutoRestartInfo.from_response(response)
                 if autorestart is not None:
-                    logger.debug("Autorestart info:", extra=autorestart.deploy_params)
+                    logger.debug("Autorestart info found.")
                     sync_on_autorestart = True
                 else:
                     logger.debug("Autorestart info is not set.")
