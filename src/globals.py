@@ -14,8 +14,13 @@ dst_api_task: sly.Api = sly.Api() # uses for operations that require task contex
 
 src_api: sly.Api = None
 team_id = sly.env.team_id()
+task_id = sly.env.task_id()
 
 boost_by_async = False  # placeholer for future use
 src_team_id = None
 
 transcode_videos = False
+
+logs_tf_path = "one-way-instance-sync/logs"
+
+autorestart = False

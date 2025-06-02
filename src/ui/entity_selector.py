@@ -24,10 +24,18 @@ from supervisely.app.widgets import (
 )
 
 import src.globals as g
+import src.autorestart as ar
 import src.ui.team_selector as team_selector
-from src.ui.entities.workspaces import import_workspaces, Scenario
+from src.ui.entities.workspaces import import_workspaces, Scenario, get_ws_projects_map
 from src.ui.entities.team_members import import_team_members
 
+# To prevent circular imports
+connect_address: Input = None
+connect_token: Input = None
+connect_token_checkbox: Checkbox = None
+connect_button: Button = None
+connect_message: Text = None
+# ---------------------------
 
 output_message = Text()
 output_message.hide()
@@ -54,6 +62,8 @@ members_field_password = Field(
 )
 members_container = Container(widgets=[members_field_password, members_scenario_field])
 
+autorestart_checkbox = Checkbox("Enable Auto-Restart")
+autorestart_checkbox.hide()
 start_sync = Button("Start Synchronization")
 start_sync.hide()
 
@@ -170,10 +180,10 @@ ws_import_checkbox = Checkbox("Synchronize all Workspaces", checked=True)
 ws_import_checkbox.check()
 workspaces_counter = Text()
 workspaces_counter.hide()
-ws_inport_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
+ws_import_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
 
 ws_container = Container(
-    widgets=[ws_inport_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
+    widgets=[ws_import_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
 )
 ws_collapse.hide()
 
@@ -205,6 +215,7 @@ import_settings = Container(
     widgets=[
         reloadable_area,
         output_message,
+        autorestart_checkbox,
         start_sync,
         import_progress_1,
         import_progress_2,
@@ -235,6 +246,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         entities_collapse.set_active_panel(value=[])
         card.loading = True
 
+        autorestart_checkbox.hide()
         start_sync.hide()
         output_message.hide()
         team_selector.table.disable()
@@ -331,6 +343,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         members_collapse.show(), files_collapse.show(), entities_collapse.show()
 
         card.loading = False
+        autorestart_checkbox.show()
         start_sync.show()
         pbar.update()
         card.unlock()
@@ -422,11 +435,78 @@ def connect_bucket():
     bucket_text_info.show()
 
 
+def get_deploy_params():
+    global team_id, need_password
+    
+    # Basic parameters
+    deploy_params = {
+        "autorestart": g.autorestart,
+        "team_id": team_id,
+        "transcode_videos": g.transcode_videos,
+        "ws_scenario": ws_scenario.get_value(),
+        "members_scenario": members_scenario.get_value(),
+        "src_token": g.src_api.token,
+        "src_server": g.src_api.server_address,
+    }
+
+    deploy_params["ws_collapse"]= get_ws_projects_map(ws_collapse)
+    deploy_params["members_collapse"] = members_collapse.get_transferred_items()
+
+
+    deploy_params["change_link_flag"] = need_link_change.is_checked()
+    # Password handling
+    if need_password:
+        deploy_params["default_password"] = team_members_d_password.get_value()
+    else:
+        deploy_params["default_password"] = None
+
+    # Workspace import settings
+    deploy_params["is_import_all_ws"] = ws_import_checkbox.is_checked()
+    deploy_params["is_fast_mode"] = ws_options.get_value() == "fast"
+    
+    # Link change and bucket settings
+    if need_link_change.is_checked():
+        deploy_params["change_link"] = True
+        deploy_params["bucket_path"] = f"{provider_selector.get_value()}://{bucket_name_input.get_value()}"
+        deploy_params["bucket_text_value"] = bucket_text_info.get_value() or ""
+        deploy_params["is_bucket_connected"] = bool(deploy_params["bucketTextValue"].startswith("Connected"))
+    else:
+        deploy_params["change_link"] = False
+        deploy_params["bucket_path"] = None
+        deploy_params["bucket_text_value"] = ""
+        deploy_params["is_bucket_connected"] = False
+    
+    # Team members scenario flag
+    deploy_params["ignore_users_scenario"] = members_scenario.get_value() == Scenario.IGNORE
+
+    return deploy_params
+
+@autorestart_checkbox.value_changed
+def set_autorestart(is_checked: bool):
+    if is_checked:
+        g.autorestart = True
+    else:
+        g.autorestart = False
+
 @start_sync.click
 def process_import():
     global team_id, need_password
     output_message.hide()
-
+    
+    if g.autorestart:
+        try:
+            deploy_params = get_deploy_params()
+            autorestart = ar.AutoRestartInfo.check_autorestart(g.dst_api_task, g.task_id)
+            if autorestart is None:
+                sly.logger.debug("Autorestart info is not set. Creating new one.")
+                autorestart = ar.AutoRestartInfo(deploy_params)
+            elif autorestart.is_changed(deploy_params):
+                sly.logger.debug("Autorestart info is changed. Updating.")
+                autorestart.deploy_params.update(deploy_params)
+            g.dst_api_task.task.set_fields(g.task_id, autorestart.generate_fields())
+        except Exception as e:
+            sly.logger.warning(f"Failed to update autorestart info: {repr(e)}")
+    
     try:
         # import workspaces
         is_import_all_ws = ws_import_checkbox.is_checked()
@@ -492,6 +572,93 @@ def process_import():
             default_password,
             import_progress_1,
             ignore_users_scenario,
+        )
+        ##################
+
+        output_message.set(text="Data has been successfully synchronized", status="success")
+        import_progress_1.hide()
+        import_progress_2.hide()
+        import_progress_3.hide()
+        import_progress_4.hide()
+        output_message.show()
+    except Exception as e:
+        output_message.set(
+            text="An error occurred during the import process. Please restart the app.",
+            status="error",
+        )
+        output_message.show()
+        raise e
+
+
+def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
+    """Process import using parameters from autorestart without getting new parameters"""
+    
+    message = "Autorestart detected. Import in progress..."
+    sly.logger.debug(message)
+    output_message.set(message, "info")
+    output_message.show()
+    team_selector.card.unlock()
+    card.unlock()    
+    connect_token.disable()
+    connect_address.disable()
+    connect_token_checkbox.disable()
+    connect_button.text = "Reselect"
+    connect_button.icon = "zmdi zmdi-rotate-left"
+    connect_button.plain = True
+    connect_message.show()
+    autorestart_checkbox.check()
+    # output_message.hide()
+    
+    deploy_params = autorestart.deploy_params
+    
+    src_team_id = deploy_params.get("team_id")
+    connect_token.set_value(deploy_params.get("src_token"))
+    connect_address.set_value(deploy_params.get("src_server"))
+    
+    g.src_api = sly.Api(server_address=deploy_params.get("src_server"), token=deploy_params.get("src_token"))
+    connect_message.set(f"Connected to {g.src_api.server_address} as {g.src_api.user.get_my_info().login}", "success")
+
+    sly.logger.debug("Source API initialized")
+
+    try:
+        # pass all validations and start import
+        entities_collapse.set_active_panel(value=[])
+
+        import_progress_1.show()
+        import_progress_2.show()
+        import_progress_3.show()
+        import_progress_4.show()
+
+        import_workspaces(
+            g.dst_api,
+            g.src_api,
+            src_team_id,
+            deploy_params["ws_collapse"],
+            import_progress_1,
+            import_progress_2,
+            import_progress_3,
+            import_progress_4,
+            deploy_params["is_import_all_ws"],
+            deploy_params["ws_scenario"],
+            deploy_params["is_fast_mode"],
+            deploy_params["change_link_flag"],
+            deploy_params["bucket_path"],
+            is_autorestart=True,
+        )
+
+        import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide()
+        ##################
+
+        # Team Members
+        import_team_members(
+            g.dst_api,
+            g.src_api,
+            src_team_id,
+            deploy_params["members_collapse"],
+            deploy_params["default_password"],
+            import_progress_1,
+            deploy_params["ignore_users_scenario"],
+            is_autorestart=True,
         )
         ##################
 

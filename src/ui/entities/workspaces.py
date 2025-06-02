@@ -3,7 +3,7 @@ import os
 import time
 import asyncio
 import shutil
-from typing import List
+from typing import List, Union
 import supervisely as sly
 from urllib.parse import urlparse
 from supervisely import batched, KeyIdMap, DatasetInfo
@@ -21,6 +21,7 @@ import subprocess
 import src.globals as g
 from PIL import Image
 from pathlib import Path
+import tempfile
 
 BATCH_SIZE = 50
 
@@ -58,6 +59,22 @@ def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_
     if pcs.returncode != 0:
         raise RuntimeError(pcs.stderr)
     return output_path
+
+def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
+    """
+    Save the skipped file information as a file with the name which contains source information.
+    """    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=True) as temp_file:
+        try:
+            save_path = os.path.join(
+                g.logs_tf_path, f"DS_({video_info.dataset_id})_V_({video_info.id})_({video_info.name}).json"
+            )
+            api.file.upload(1, temp_file.name, save_path)
+        except Exception as e:
+            sly.logger.warning(
+                f"Failed to upload unprocessed video info for video {video_info.name} with ID {video_info.id}.",
+                exc_info=True,
+            )
 
 def download_image_external_link(link: str, path: str):
     try:
@@ -432,9 +449,13 @@ def process_videos(
         message=f"Synchronizing videos for Dataset: {src_dataset.name}", total=len(src_videos)
     ) as pbar:
         for src_video in src_videos:
+            src_name = Path(src_video.name)
+            src_name = src_name.with_suffix(src_name.suffix.lower())
+            src_name_str = str(src_name)
+            sly.logger.debug(f"Adjusted video extension in {src_video.name} to lower case: {src_name_str}")
             if scenario == Scenario.CHECK:
-                if src_video.name in existing_videos:
-                    dst_video = existing_videos[src_video.name]
+                if src_name_str in existing_videos:
+                    dst_video = existing_videos[src_name_str]
                     if src_video.updated_at <= dst_video.updated_at:
                         pbar.update()
                         continue
@@ -448,21 +469,19 @@ def process_videos(
                     dst_video = dst_api.video.upload_link(
                         dataset_id=dst_dataset.id,
                         link=link,
-                        name=src_video.name,
+                        name=src_name_str,
                         skip_download=True,
                     )
                 elif src_video.hash is not None:
                     dst_video = dst_api.video.upload_hash(
-                        dataset_id=dst_dataset.id, name=src_video.name, hash=src_video.hash
+                        dataset_id=dst_dataset.id, name=src_name_str, hash=src_video.hash
                     )
                 else:
                     raise ValueError(
-                        f"No hash or link available for video '{src_video.name}'."
+                        f"No hash or link available for video '{src_name_str}'."
                         "Attempting to upload video with path."
                     )
             except Exception:
-                src_name = Path(src_video.name)
-                src_name = src_name.with_suffix(src_name.suffix.lower())
                 video_path = str(Path(storage_dir, src_name))
                 download_path = True
                 if src_video.link is not None:
@@ -478,36 +497,58 @@ def process_videos(
                             "Attempting to download video with path."
                         )
                         download_path = True
+                
                 if download_path:
                     src_api.video.download_path(id=src_video.id, path=video_path)
+                
                 if g.transcode_videos:
                     try:
                         output_path = _transcode(video_path, video_path + "_transcoded.mp4")
                     except Exception:
                         sly.logger.warning(
-                            "Failed to transcode video: %s. It will be skipped.", video_path, exc_info=True
+                            "Failed to transcode video: %s. Process will be skipped.", video_path, exc_info=True
                         )
+                        result_path = video_path
                     else:
                         result_path = video_path if video_path.endswith(".mp4") else video_path + ".mp4"
                         shutil.move(output_path, result_path)
                 else:
                     result_path = video_path
-                dst_video = g.dst_api_task.video.upload_path(
-                    dataset_id=dst_dataset.id,
-                    name=str(src_name),
-                    path=result_path,
-                    meta=src_video.meta,
-                )
-                silent_remove(video_path)
-                silent_remove(result_path)
+                try:
+                    dst_video = g.dst_api_task.video.upload_path(
+                        dataset_id=dst_dataset.id,
+                        name=src_name_str,
+                        path=result_path,
+                        meta=src_video.meta,
+                    )
+                except Exception as e:
+                    sly.logger.warning(
+                        f"Failed to upload source video '{src_video.id}: {src_name_str}' to "
+                        f"destination dataset '{dst_dataset.id}: {dst_dataset.name}'. Skipping",
+                        exc_info=True,
+                    )
+                    pbar.update()
+                    continue
+                finally:
+                    silent_remove(video_path)
+                    silent_remove(result_path)
 
-            ann_json = src_api.video.annotation.download(video_id=src_video.id)
-            ann = sly.VideoAnnotation.from_json(
-                data=ann_json, project_meta=meta, key_id_map=key_id_map
-            )
-            dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
-            if src_video.custom_data is not None and len(src_video.custom_data) > 0:
-                dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
+            try:
+                ann_json = src_api.video.annotation.download(video_id=src_video.id)
+                ann = sly.VideoAnnotation.from_json(
+                    data=ann_json, project_meta=meta, key_id_map=key_id_map
+                )
+                dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
+                if src_video.custom_data is not None and len(src_video.custom_data) > 0:
+                    dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
+            except Exception as e:
+                sly.logger.warning(
+                    f"Failed to upload annotation for video '{src_name_str}'."
+                    "Skipping annotation upload and deleting video.",
+                    exc_info=True,
+                )
+                g.dst_api_task.video.remove(dst_video.id)
+                _log_skipped_video(dst_api, src_video)
             pbar.update()
 
 
@@ -813,7 +854,7 @@ def import_workspaces(
     dst_api: sly.Api,
     src_api: sly.Api,
     team_id: int,
-    ws_collapse: sly.app.widgets.Collapse,
+    ws_collapse: Union[sly.app.widgets.Collapse, dict],
     progress_ws: Progress,
     progress_pr: Progress,
     progress_ds: Progress,
@@ -823,17 +864,22 @@ def import_workspaces(
     is_fast_mode: bool = False,
     change_link_flag: bool = False,
     bucket_path: str = None,
+    is_autorestart: bool = False,
 ):
     src_team = src_api.team.get_info_by_id(team_id)
     g.src_team_id = team_id
 
     if is_import_all_ws:
         workspaces = src_api.workspace.get_list(team_id=team_id)
+    elif isinstance(ws_collapse, dict) and is_autorestart:
+        workspaces = [
+            src_api.workspace.get_info_by_id(int(ws_name)) for ws_name, project_list in ws_collapse.items() if len(project_list) > 0
+        ]
     else:
         ws_projects_map = get_ws_projects_map(ws_collapse)
         for ws in ws_collapse._items:
             ws_projects_map[ws.name] = []
-            projects = ws.content
+            projects = ws.content # Transfer widget
             for project in projects.get_transferred_items():
                 ws_projects_map[ws.name].append(project)
         workspaces = [
@@ -858,6 +904,11 @@ def import_workspaces(
 
             if is_import_all_ws:
                 projects = src_api.project.get_list(workspace.id)
+            elif isinstance(ws_collapse, dict) and is_autorestart:
+                projects = [
+                    src_api.project.get_info_by_id(project_id)
+                    for project_id in ws_collapse.get(str(workspace.id), [])
+                ]
             else:
                 projects = [
                     src_api.project.get_info_by_id(project_id)
