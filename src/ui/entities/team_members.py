@@ -35,7 +35,7 @@ def import_team_members(
     # src_api.user.get_info_by_login(member)
     # for member in members_collapse.get_transferred_items()
     # ]
-    if isinstance(members_collapse, dict) and is_autorestart:
+    if isinstance(members_collapse, List) and is_autorestart:
         incoming_users_names = members_collapse
     else:
         incoming_users_names = members_collapse.get_transferred_items()

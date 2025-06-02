@@ -43,6 +43,11 @@ card = Card(
     content=container,
 )
 
+entity_selector.connect_address = sly_address_input
+entity_selector.connect_token = sly_token_input
+entity_selector.connect_token_checkbox = show_token
+entity_selector.connect_button = connect_instance
+entity_selector.connect_message = connect_message
 
 @show_token.value_changed
 def reveal_token(is_checked: bool):

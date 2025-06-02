@@ -29,6 +29,13 @@ import src.ui.team_selector as team_selector
 from src.ui.entities.workspaces import import_workspaces, Scenario, get_ws_projects_map
 from src.ui.entities.team_members import import_team_members
 
+# To prevent circular imports
+connect_address: Input = None
+connect_token: Input = None
+connect_token_checkbox: Checkbox = None
+connect_button: Button = None
+connect_message: Text = None
+# ---------------------------
 
 output_message = Text()
 output_message.hide()
@@ -572,14 +579,30 @@ def process_import():
 def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     """Process import using parameters from autorestart without getting new parameters"""
     
-    sly.logger.debug("Processing import from autorestart.")
-
-    output_message.hide()
+    message = "Autorestart detected. Import in progress..."
+    sly.logger.debug(message)
+    output_message.set(message, "info")
+    output_message.show()
+    team_selector.card.unlock()
+    card.unlock()    
+    connect_token.disable()
+    connect_address.disable()
+    connect_token_checkbox.disable()
+    connect_button.text = "Reselect"
+    connect_button.icon = "zmdi zmdi-rotate-left"
+    connect_button.plain = True
+    connect_message.show()
+    # output_message.hide()
     
     deploy_params = autorestart.deploy_params
     
     src_team_id = deploy_params.get("team_id")
+    connect_token.set_value(deploy_params.get("src_token"))
+    connect_address.set_value(deploy_params.get("src_server"))
+    
     g.src_api = sly.Api(server_address=deploy_params.get("src_server"), token=deploy_params.get("src_token"))
+    connect_message.set(f"Connected to {g.src_api.server_address} as {g.src_api.user.get_my_info().login}", "success")
+
     sly.logger.debug("Source API initialized")
 
     try:
