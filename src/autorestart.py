@@ -3,10 +3,6 @@ from supervisely import logger, Api
 from supervisely.api.module_api import ApiField
 from dataclasses import dataclass
 
-
-autorestart = None
-sync_on_autorestart = False
-
 @dataclass
 class AutoRestartInfo:
     deploy_params: dict
@@ -35,8 +31,8 @@ class AutoRestartInfo:
         return self.deploy_params != deploy_params
     
     @staticmethod
-    def check_autorestart(api: Api , task_id: int) -> None:
-        global autorestart, sync_on_autorestart
+    def check_autorestart(api: Api , task_id: int) -> "AutoRestartInfo":
+        autorestart = None
         try:
             if task_id is not None:
                 logger.debug("Checking autorestart info...")
@@ -45,9 +41,9 @@ class AutoRestartInfo:
                 )
                 autorestart = AutoRestartInfo.from_response(response)
                 if autorestart is not None:
-                    logger.debug("Autorestart info found.")
-                    sync_on_autorestart = True
+                    logger.debug("Autorestart info found.")                    
                 else:
                     logger.debug("Autorestart info is not set.")
         except Exception:
             logger.error("Autorestart info is not available.", exc_info=True)
+        return autorestart

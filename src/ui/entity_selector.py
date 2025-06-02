@@ -468,15 +468,16 @@ def process_import():
     global team_id, need_password
     output_message.hide()
     
-    deploy_params = get_deploy_params()
     try:
-        if ar.autorestart is None:
+        deploy_params = get_deploy_params()
+        autorestart = ar.AutoRestartInfo.check_autorestart(g.dst_api_task, g.task_id)
+        if autorestart is None:
             sly.logger.debug("Autorestart info is not set. Creating new one.")
-            ar.autorestart = ar.AutoRestartInfo(deploy_params)
-            g.dst_api_task.task.set_fields(g.task_id, ar.autorestart.generate_fields())
-        elif ar.autorestart.is_changed(deploy_params):
+            autorestart = ar.AutoRestartInfo(deploy_params)
+        elif autorestart.is_changed(deploy_params):
             sly.logger.debug("Autorestart info is changed. Updating.")
-            ar.autorestart.deploy_params.update(deploy_params)
+            autorestart.deploy_params.update(deploy_params)
+        g.dst_api_task.task.set_fields(g.task_id, autorestart.generate_fields())
     except Exception as e:
          sly.logger.warning(f"Failed to update autorestart info: {repr(e)}")
     
