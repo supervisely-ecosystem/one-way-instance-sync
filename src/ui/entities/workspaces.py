@@ -3,7 +3,8 @@ import os
 import time
 import asyncio
 import shutil
-from typing import List, Union
+from tqdm import tqdm
+from typing import List, Union, Optional
 import supervisely as sly
 from urllib.parse import urlparse
 from supervisely import batched, KeyIdMap, DatasetInfo
@@ -63,18 +64,34 @@ def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_
 def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
     """
     Save the skipped file information as a file with the name which contains source information.
-    """    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=True) as temp_file:
+    """
+    import json
+
+    video_data = {
+        "video_id": video_info.id,
+        "video_name": video_info.name,
+        "dataset_id": video_info.dataset_id,
+        "timestamp": time.time()
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
         try:
+            json.dump(video_data, temp_file, indent=2, default=str)
+            temp_file.flush()
             save_path = os.path.join(
-                g.logs_tf_path, f"DS_({video_info.dataset_id})_V_({video_info.id})_({video_info.name}).json"
+                g.logs_tf_path, f"DS_{video_info.dataset_id}_V_{video_info.id}_{video_info.name}.json"
             )
-            api.file.upload(1, temp_file.name, save_path)
+            api.storage.upload(1, temp_file.name, save_path)
         except Exception as e:
             sly.logger.warning(
                 f"Failed to upload unprocessed video info for video {video_info.name} with ID {video_info.id}.",
                 exc_info=True,
             )
+        finally:
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
 
 def download_image_external_link(link: str, path: str):
     try:
@@ -263,6 +280,7 @@ def process_images(
     need_change_link: bool = False,
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
+    progress_download_item: Optional[Progress] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -433,6 +451,7 @@ def process_videos(
     need_change_link: bool = False,
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
+    progress_download_item: Optional[Progress] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -499,19 +518,33 @@ def process_videos(
                         download_path = True
                 
                 if download_path:
-                    src_api.video.download_path(id=src_video.id, path=video_path)
-                
+                    with progress_download_item(
+                        message=f"Downloading video: {src_name_str}",
+                        total=int(src_video.file_meta.get("size", 0)),
+                        unit="B",
+                        unit_scale=True,
+                    ) as pbar_it:
+                        src_api.video.download_path(id=src_video.id, path=video_path, progress_cb=pbar_it.update)
+
                 if g.transcode_videos:
                     try:
+                        sly.logger.info(
+                            f"Transcoding video: {video_path} to mp4 format."
+                        )
                         output_path = _transcode(video_path, video_path + "_transcoded.mp4")
                     except Exception:
                         sly.logger.warning(
                             "Failed to transcode video: %s. Process will be skipped.", video_path, exc_info=True
                         )
-                        result_path = video_path
+                        _log_skipped_video(dst_api, src_video)
+                        pbar.update()
+                        continue
                     else:
                         result_path = video_path if video_path.endswith(".mp4") else video_path + ".mp4"
                         shutil.move(output_path, result_path)
+                        sly.logger.info(
+                            f"Video transcoded successfully: {result_path}"
+                        )
                 else:
                     result_path = video_path
                 try:
@@ -563,6 +596,7 @@ def process_volumes(
     need_change_link: bool = False,
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
+    progress_download_item: Optional[Progress] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -644,6 +678,7 @@ def process_pcd(
     need_change_link: bool = False,
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
+    progress_download_item: Optional[Progress] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -738,6 +773,7 @@ def process_pcde(
     need_change_link: bool = False,
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
+    progress_download_item: Optional[Progress] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -864,6 +900,7 @@ def import_workspaces(
     is_fast_mode: bool = False,
     change_link_flag: bool = False,
     bucket_path: str = None,
+    progress_it: Progress = None,
     is_autorestart: bool = False,
 ):
     src_team = src_api.team.get_info_by_id(team_id)
@@ -1007,6 +1044,7 @@ def import_workspaces(
                                 need_change_link=change_link_flag,
                                 bucket_path=bucket_path,
                                 scenario=temp_ws_scenario,
+                                progress_download_item=progress_it,
                             )
                             pbar_ds.update()
                     pbar_pr.update()
