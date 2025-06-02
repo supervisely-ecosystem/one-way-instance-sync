@@ -71,20 +71,23 @@ import_progress_1 = Progress(hide_on_finish=False)
 import_progress_2 = Progress(hide_on_finish=False)
 import_progress_3 = Progress(hide_on_finish=True)
 import_progress_4 = Progress(hide_on_finish=True)
+import_progress_5 = Progress(hide_on_finish=True)
 
 
-def four_progress_visibility(visible: bool):
-    global import_progress_1, import_progress_2, import_progress_3, import_progress_4
+def five_progress_visibility(visible: bool):
+    global import_progress_1, import_progress_2, import_progress_3, import_progress_4, import_progress_5
     if visible:
         import_progress_1.show()
         import_progress_2.show()
         import_progress_3.show()
         import_progress_4.show()
+        import_progress_5.show()
     else:
         import_progress_1.hide()
         import_progress_2.hide()
         import_progress_3.hide()
         import_progress_4.hide()
+        import_progress_5.hide()
 
 
 # Entities collapses
@@ -221,6 +224,7 @@ import_settings = Container(
         import_progress_2,
         import_progress_3,
         import_progress_4,
+        import_progress_5,
     ]
 )
 
@@ -538,10 +542,11 @@ def process_import():
         # pass all validations and start import
         entities_collapse.set_active_panel(value=[])
 
-        import_progress_1.show()
-        import_progress_2.show()
-        import_progress_3.show()
-        import_progress_4.show()
+        # import_progress_1.show()
+        # import_progress_2.show()
+        # import_progress_3.show()
+        # import_progress_4.show()
+        five_progress_visibility(True)
 
         import_workspaces(
             g.dst_api,
@@ -557,9 +562,10 @@ def process_import():
             is_fast_mode,
             change_link_flag,
             bucket_path,
+            import_progress_5,
         )
 
-        import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide()
+        import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide(), import_progress_5.hide()
         ##################
 
         # Team Members
@@ -576,10 +582,11 @@ def process_import():
         ##################
 
         output_message.set(text="Data has been successfully synchronized", status="success")
-        import_progress_1.hide()
-        import_progress_2.hide()
-        import_progress_3.hide()
-        import_progress_4.hide()
+        # import_progress_1.hide()
+        # import_progress_2.hide()
+        # import_progress_3.hide()
+        # import_progress_4.hide()
+        five_progress_visibility(False)
         output_message.show()
     except Exception as e:
         output_message.set(
@@ -611,6 +618,8 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     
     deploy_params = autorestart.deploy_params
     
+    g.transcode_videos = deploy_params.get("transcode_videos", False)
+    
     src_team_id = deploy_params.get("team_id")
     connect_token.set_value(deploy_params.get("src_token"))
     connect_address.set_value(deploy_params.get("src_server"))
@@ -624,10 +633,11 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
         # pass all validations and start import
         entities_collapse.set_active_panel(value=[])
 
-        import_progress_1.show()
-        import_progress_2.show()
-        import_progress_3.show()
-        import_progress_4.show()
+        # import_progress_1.show()
+        # import_progress_2.show()
+        # import_progress_3.show()
+        # import_progress_4.show()
+        five_progress_visibility(True)
 
         import_workspaces(
             g.dst_api,
@@ -643,10 +653,11 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
             deploy_params["is_fast_mode"],
             deploy_params["change_link_flag"],
             deploy_params["bucket_path"],
+            import_progress_5,
             is_autorestart=True,
         )
 
-        import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide()
+        import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide(), import_progress_5.hide()
         ##################
 
         # Team Members
@@ -663,10 +674,11 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
         ##################
 
         output_message.set(text="Data has been successfully synchronized", status="success")
-        import_progress_1.hide()
-        import_progress_2.hide()
-        import_progress_3.hide()
-        import_progress_4.hide()
+        # import_progress_1.hide()
+        # import_progress_2.hide()
+        # import_progress_3.hide()
+        # import_progress_4.hide()
+        five_progress_visibility(False)
         output_message.show()
     except Exception as e:
         output_message.set(

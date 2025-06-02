@@ -69,7 +69,7 @@ def connect():
         entity_selector.entities_collapse.hide()
         entity_selector.start_sync.hide()
         entity_selector.output_message.hide()
-        entity_selector.four_progress_visibility(False)
+        entity_selector.five_progress_visibility(False)
         team_selector.card.lock()
         entity_selector.card.lock()
         connect_instance.plain = False
