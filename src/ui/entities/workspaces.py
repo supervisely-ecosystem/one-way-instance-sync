@@ -3,7 +3,7 @@ import os
 import time
 import asyncio
 import shutil
-from typing import List
+from typing import List, Union
 import supervisely as sly
 from urllib.parse import urlparse
 from supervisely import batched, KeyIdMap, DatasetInfo
@@ -854,7 +854,7 @@ def import_workspaces(
     dst_api: sly.Api,
     src_api: sly.Api,
     team_id: int,
-    ws_collapse: sly.app.widgets.Collapse,
+    ws_collapse: Union[sly.app.widgets.Collapse, dict],
     progress_ws: Progress,
     progress_pr: Progress,
     progress_ds: Progress,
@@ -864,17 +864,22 @@ def import_workspaces(
     is_fast_mode: bool = False,
     change_link_flag: bool = False,
     bucket_path: str = None,
+    is_autorestart: bool = False,
 ):
     src_team = src_api.team.get_info_by_id(team_id)
     g.src_team_id = team_id
 
     if is_import_all_ws:
         workspaces = src_api.workspace.get_list(team_id=team_id)
+    elif isinstance(ws_collapse, dict) and is_autorestart:
+        workspaces = [
+            src_api.workspace.get_info_by_id(int(ws_name)) for ws_name, project_list in ws_collapse.items() if len(project_list) > 0
+        ]
     else:
         ws_projects_map = get_ws_projects_map(ws_collapse)
         for ws in ws_collapse._items:
             ws_projects_map[ws.name] = []
-            projects = ws.content
+            projects = ws.content # Transfer widget
             for project in projects.get_transferred_items():
                 ws_projects_map[ws.name].append(project)
         workspaces = [
@@ -899,6 +904,11 @@ def import_workspaces(
 
             if is_import_all_ws:
                 projects = src_api.project.get_list(workspace.id)
+            elif isinstance(ws_collapse, dict) and is_autorestart:
+                projects = [
+                    src_api.project.get_info_by_id(project_id)
+                    for project_id in ws_collapse.get(str(workspace.id), [])
+                ]
             else:
                 projects = [
                     src_api.project.get_info_by_id(project_id)

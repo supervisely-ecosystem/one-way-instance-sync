@@ -26,7 +26,7 @@ from supervisely.app.widgets import (
 import src.globals as g
 import src.autorestart as ar
 import src.ui.team_selector as team_selector
-from src.ui.entities.workspaces import import_workspaces, Scenario
+from src.ui.entities.workspaces import import_workspaces, Scenario, get_ws_projects_map
 from src.ui.entities.team_members import import_team_members
 
 
@@ -171,10 +171,10 @@ ws_import_checkbox = Checkbox("Synchronize all Workspaces", checked=True)
 ws_import_checkbox.check()
 workspaces_counter = Text()
 workspaces_counter.hide()
-ws_inport_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
+ws_import_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
 
 ws_container = Container(
-    widgets=[ws_inport_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
+    widgets=[ws_import_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
 )
 ws_collapse.hide()
 
@@ -435,6 +435,11 @@ def get_deploy_params():
         "src_token": g.src_api.token,
         "src_server": g.src_api.server_address,
     }
+
+    deploy_params["ws_collapse"]= get_ws_projects_map(ws_collapse)
+    deploy_params["members_collapse"] = members_collapse.get_transferred_items()
+
+
     deploy_params["change_link_flag"] = need_link_change.is_checked()
     # Password handling
     if need_password:
@@ -590,7 +595,7 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
             g.dst_api,
             g.src_api,
             src_team_id,
-            ws_collapse,
+            deploy_params["ws_collapse"],
             import_progress_1,
             import_progress_2,
             import_progress_3,
@@ -600,6 +605,7 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
             deploy_params["is_fast_mode"],
             deploy_params["change_link_flag"],
             deploy_params["bucket_path"],
+            is_autorestart=True,
         )
 
         import_progress_2.hide(), import_progress_3.hide(), import_progress_4.hide()
@@ -610,10 +616,11 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
             g.dst_api,
             g.src_api,
             src_team_id,
-            members_collapse,
+            deploy_params["members_collapse"],
             deploy_params["default_password"],
             import_progress_1,
             deploy_params["ignore_users_scenario"],
+            is_autorestart=True,
         )
         ##################
 

@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Union
 import supervisely as sly
 from supervisely.app.widgets import Progress
 from supervisely import TeamInfo
@@ -14,10 +14,11 @@ def import_team_members(
     dst_api: sly.Api,
     src_api: sly.Api,
     team_id: str,
-    members_collapse: sly.app.widgets.Transfer,
+    members_collapse: Union[sly.app.widgets.Transfer, List],
     default_password: str,
     progress: Progress,
     ignore_scenario: bool,
+    is_autorestart:bool = False,
 ):
     foreign_team: TeamInfo = src_api.team.get_info_by_id(team_id)
     dst_team: TeamInfo = dst_api.team.get_info_by_name(foreign_team.name)
@@ -34,7 +35,10 @@ def import_team_members(
     # src_api.user.get_info_by_login(member)
     # for member in members_collapse.get_transferred_items()
     # ]
-    incoming_users_names = members_collapse.get_transferred_items()
+    if isinstance(members_collapse, dict) and is_autorestart:
+        incoming_users_names = members_collapse
+    else:
+        incoming_users_names = members_collapse.get_transferred_items()
     incoming_users = [
         user
         for user in src_api.user.get_team_members(team_id)
