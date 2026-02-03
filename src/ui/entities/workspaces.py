@@ -9,6 +9,7 @@ import supervisely as sly
 from urllib.parse import urlparse
 from supervisely import batched, KeyIdMap, DatasetInfo
 from supervisely.project.project_type import ProjectType
+from supervisely.project.project_settings import LabelingInterface
 from supervisely.app.widgets import Progress
 from supervisely.api.module_api import ApiField
 from supervisely.api.image_api import ImageInfo
@@ -38,7 +39,8 @@ def change_link(bucket_path: str, link: str):
     parsed_url = urlparse(link)
     return f"{bucket_path}{parsed_url.path}"
 
-def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_codec: str = "aac"):    
+
+def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_codec: str = "aac"):
     pcs = subprocess.run(
         [
             "ffmpeg",
@@ -61,6 +63,7 @@ def _transcode(path: str, output_path: str, video_codec: str = "libx264", audio_
         raise RuntimeError(pcs.stderr)
     return output_path
 
+
 def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
     """
     Save the skipped file information as a file with the name which contains source information.
@@ -71,15 +74,16 @@ def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
         "video_id": video_info.id,
         "video_name": video_info.name,
         "dataset_id": video_info.dataset_id,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as temp_file:
         try:
             json.dump(video_data, temp_file, indent=2, default=str)
             temp_file.flush()
             save_path = os.path.join(
-                g.logs_tf_path, f"DS_{video_info.dataset_id}_V_{video_info.id}_{video_info.name}.json"
+                g.logs_tf_path,
+                f"DS_{video_info.dataset_id}_V_{video_info.id}_{video_info.name}.json",
             )
             api.storage.upload(1, temp_file.name, save_path)
         except Exception as e:
@@ -92,6 +96,7 @@ def _log_skipped_video(api: sly.Api, video_info: VideoInfo):
                 os.unlink(temp_file.name)
             except:
                 pass
+
 
 def download_image_external_link(link: str, path: str):
     try:
@@ -281,6 +286,7 @@ def process_images(
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
     progress_download_item: Optional[Progress] = None,
+    new_meta: Optional[sly.ProjectMeta] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -452,6 +458,7 @@ def process_videos(
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
     progress_download_item: Optional[Progress] = None,
+    new_meta: Optional[sly.ProjectMeta] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -464,6 +471,10 @@ def process_videos(
         existing_videos = {
             existing_video.name: existing_video for existing_video in existing_videos_list
         }
+
+    is_multiview = meta.labeling_interface == LabelingInterface.MULTIVIEW
+    dst_to_src_videos_map = {}
+
     with progress_items(
         message=f"Synchronizing videos for Dataset: {src_dataset.name}", total=len(src_videos)
     ) as pbar:
@@ -471,7 +482,9 @@ def process_videos(
             src_name = Path(src_video.name)
             src_name = src_name.with_suffix(src_name.suffix.lower())
             src_name_str = str(src_name)
-            sly.logger.debug(f"Adjusted video extension in {src_video.name} to lower case: {src_name_str}")
+            sly.logger.debug(
+                f"Adjusted video extension in {src_video.name} to lower case: {src_name_str}"
+            )
             if scenario == Scenario.CHECK:
                 if src_name_str in existing_videos:
                     dst_video = existing_videos[src_name_str]
@@ -516,7 +529,7 @@ def process_videos(
                             "Attempting to download video with path."
                         )
                         download_path = True
-                
+
                 if download_path:
                     with progress_download_item(
                         message=f"Downloading video: {src_name_str}",
@@ -524,27 +537,29 @@ def process_videos(
                         unit="B",
                         unit_scale=True,
                     ) as pbar_it:
-                        src_api.video.download_path(id=src_video.id, path=video_path, progress_cb=pbar_it.update)
+                        src_api.video.download_path(
+                            id=src_video.id, path=video_path, progress_cb=pbar_it.update
+                        )
 
                 if g.transcode_videos:
                     try:
-                        sly.logger.info(
-                            f"Transcoding video: {video_path} to mp4 format."
-                        )
+                        sly.logger.info(f"Transcoding video: {video_path} to mp4 format.")
                         output_path = _transcode(video_path, video_path + "_transcoded.mp4")
                     except Exception:
                         sly.logger.warning(
-                            "Failed to transcode video: %s. Process will be skipped.", video_path, exc_info=True
+                            "Failed to transcode video: %s. Process will be skipped.",
+                            video_path,
+                            exc_info=True,
                         )
                         _log_skipped_video(dst_api, src_video)
                         pbar.update()
                         continue
                     else:
-                        result_path = video_path if video_path.endswith(".mp4") else video_path + ".mp4"
-                        shutil.move(output_path, result_path)
-                        sly.logger.info(
-                            f"Video transcoded successfully: {result_path}"
+                        result_path = (
+                            video_path if video_path.endswith(".mp4") else video_path + ".mp4"
                         )
+                        shutil.move(output_path, result_path)
+                        sly.logger.info(f"Video transcoded successfully: {result_path}")
                 else:
                     result_path = video_path
                 try:
@@ -566,23 +581,67 @@ def process_videos(
                     silent_remove(video_path)
                     silent_remove(result_path)
 
+            dst_to_src_videos_map[dst_video.id] = src_video
+
+            if not is_multiview:
+                try:
+                    ann_json = src_api.video.annotation.download(video_id=src_video.id)
+                    ann = sly.VideoAnnotation.from_json(
+                        data=ann_json, project_meta=new_meta, key_id_map=key_id_map
+                    )
+                    dst_api.video.annotation.append(
+                        video_id=dst_video.id, ann=ann, key_id_map=key_id_map
+                    )
+                    if src_video.custom_data is not None and len(src_video.custom_data) > 0:
+                        dst_api.video.update_custom_data(
+                            id=dst_video.id, data=src_video.custom_data
+                        )
+                except Exception as e:
+                    sly.logger.warning(
+                        f"Failed to upload annotation for video '{src_name_str}'."
+                        "Skipping annotation upload and deleting video.",
+                        exc_info=True,
+                    )
+                    g.dst_api_task.video.remove(dst_video.id)
+                    _log_skipped_video(dst_api, src_video)
+            pbar.update()
+
+    if is_multiview:
+        sly.logger.info("Multiview video dataset detected. Uploading multiview annotations...")
+        video_ids = []
+        anns = []
+        progress_total = 0
+        dst_key_id_map = KeyIdMap()
+        for dst_video_id, src_video in dst_to_src_videos_map.items():
             try:
                 ann_json = src_api.video.annotation.download(video_id=src_video.id)
                 ann = sly.VideoAnnotation.from_json(
                     data=ann_json, project_meta=meta, key_id_map=key_id_map
                 )
-                dst_api.video.annotation.append(video_id=dst_video.id, ann=ann, key_id_map=key_id_map)
-                if src_video.custom_data is not None and len(src_video.custom_data) > 0:
-                    dst_api.video.update_custom_data(id=dst_video.id, data=src_video.custom_data)
+                anns.append(ann)
+                video_ids.append(dst_video_id)
+                progress_total += len(ann.figures)
             except Exception as e:
                 sly.logger.warning(
-                    f"Failed to upload annotation for video '{src_name_str}'."
-                    "Skipping annotation upload and deleting video.",
+                    f"Failed to download annotation for multiview video '{src_video.name}'. {e}"
+                    "Skipping annotation upload for this video.",
                     exc_info=True,
                 )
-                g.dst_api_task.video.remove(dst_video.id)
-                _log_skipped_video(dst_api, src_video)
-            pbar.update()
+                g.dst_api_task.video.remove(dst_video_id)
+        with progress_items(
+            message=f"Uploading multiview annotations for Dataset: {src_dataset.name}",
+            total=progress_total,
+        ) as pbar:
+            try:
+                dst_api.video.annotation.upload_anns_multiview(
+                    video_ids=video_ids, anns=anns, progress_cb=pbar, key_id_map=dst_key_id_map
+                )
+            except Exception as e:
+                sly.logger.warning(
+                    f"Failed to upload multiview annotations for dataset '{src_dataset.name}'.",
+                    exc_info=True,
+                )
+                dst_api.video.remove_batch(ids=video_ids)
 
 
 def process_volumes(
@@ -597,6 +656,7 @@ def process_volumes(
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
     progress_download_item: Optional[Progress] = None,
+    new_meta: Optional[sly.ProjectMeta] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -679,6 +739,7 @@ def process_pcd(
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
     progress_download_item: Optional[Progress] = None,
+    new_meta: Optional[sly.ProjectMeta] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -774,6 +835,7 @@ def process_pcde(
     bucket_path: str = None,
     scenario: str = Scenario.NOT_SET,
     progress_download_item: Optional[Progress] = None,
+    new_meta: Optional[sly.ProjectMeta] = None,
 ):
     storage_dir = "storage"
     mkdir(storage_dir, True)
@@ -910,13 +972,15 @@ def import_workspaces(
         workspaces = src_api.workspace.get_list(team_id=team_id)
     elif isinstance(ws_collapse, dict) and is_autorestart:
         workspaces = [
-            src_api.workspace.get_info_by_id(int(ws_name)) for ws_name, project_list in ws_collapse.items() if len(project_list) > 0
+            src_api.workspace.get_info_by_id(int(ws_name))
+            for ws_name, project_list in ws_collapse.items()
+            if len(project_list) > 0
         ]
     else:
         ws_projects_map = get_ws_projects_map(ws_collapse)
         for ws in ws_collapse._items:
             ws_projects_map[ws.name] = []
-            projects = ws.content # Transfer widget
+            projects = ws.content  # Transfer widget
             for project in projects.get_transferred_items():
                 ws_projects_map[ws.name].append(project)
         workspaces = [
@@ -996,9 +1060,9 @@ def import_workspaces(
                             f"Project {project.name} already exists in destination Workspace. Checking..."
                         )
 
-                    meta_json = src_api.project.get_meta(project.id)
-                    dst_api.project.update_meta(dst_project.id, meta_json)
+                    meta_json = src_api.project.get_meta(project.id, with_settings=True)
                     meta = sly.ProjectMeta.from_json(meta_json)
+                    dst_meta = dst_api.project.update_meta(dst_project.id, meta_json)
 
                     ds_mapping = {}
                     datasets = src_api.dataset.get_list(project.id, recursive=True)
@@ -1045,6 +1109,7 @@ def import_workspaces(
                                 bucket_path=bucket_path,
                                 scenario=temp_ws_scenario,
                                 progress_download_item=progress_it,
+                                new_meta=dst_meta,
                             )
                             pbar_ds.update()
                     pbar_pr.update()

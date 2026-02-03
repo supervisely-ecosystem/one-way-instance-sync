@@ -152,7 +152,10 @@ option_items = [
         value="slow",
         label="[Slow] Copy data between instances by reuploading",
         content=Empty(),
-    )
+    ),
+    RadioGroup.Item(
+        value="fast", label="[Fast] Copy data via links when possible", content=Empty()
+    ),
 ]
 option_items_coming_soon = [
     RadioGroup.Item(
@@ -170,6 +173,7 @@ ws_options_coming_soon_container = Container(
     direction="horizontal",
     fractions=[0, 1],
 )
+ws_options_coming_soon_container.hide()
 ws_options_container_one = Container(widgets=[ws_options, ws_options_coming_soon_container])
 ws_options_container = Container(widgets=[ws_options_container_one, ws_one_of])
 ws_field_transfer = Field(
@@ -186,7 +190,13 @@ workspaces_counter.hide()
 ws_import_container = Container(widgets=[ws_import_checkbox, workspaces_counter])
 
 ws_container = Container(
-    widgets=[ws_import_container, ws_collapse, ws_scenario_field, transcode_videos_checkbox, ws_field_transfer]
+    widgets=[
+        ws_import_container,
+        ws_collapse,
+        ws_scenario_field,
+        transcode_videos_checkbox,
+        ws_field_transfer,
+    ]
 )
 ws_collapse.hide()
 
@@ -352,6 +362,7 @@ def show_team_stats(datapoint: Table.ClickedDataPoint):
         pbar.update()
         card.unlock()
 
+
 @transcode_videos_checkbox.value_changed
 def transcode_videos_changed(is_checked: bool):
     g.transcode_videos = is_checked
@@ -441,7 +452,7 @@ def connect_bucket():
 
 def get_deploy_params():
     global team_id, need_password
-    
+
     # Basic parameters
     deploy_params = {
         "autorestart": g.autorestart,
@@ -453,9 +464,8 @@ def get_deploy_params():
         "src_server": g.src_api.server_address,
     }
 
-    deploy_params["ws_collapse"]= get_ws_projects_map(ws_collapse)
+    deploy_params["ws_collapse"] = get_ws_projects_map(ws_collapse)
     deploy_params["members_collapse"] = members_collapse.get_transferred_items()
-
 
     deploy_params["change_link_flag"] = need_link_change.is_checked()
     # Password handling
@@ -467,23 +477,28 @@ def get_deploy_params():
     # Workspace import settings
     deploy_params["is_import_all_ws"] = ws_import_checkbox.is_checked()
     deploy_params["is_fast_mode"] = ws_options.get_value() == "fast"
-    
+
     # Link change and bucket settings
     if need_link_change.is_checked():
         deploy_params["change_link"] = True
-        deploy_params["bucket_path"] = f"{provider_selector.get_value()}://{bucket_name_input.get_value()}"
+        deploy_params["bucket_path"] = (
+            f"{provider_selector.get_value()}://{bucket_name_input.get_value()}"
+        )
         deploy_params["bucket_text_value"] = bucket_text_info.get_value() or ""
-        deploy_params["is_bucket_connected"] = bool(deploy_params["bucketTextValue"].startswith("Connected"))
+        deploy_params["is_bucket_connected"] = bool(
+            deploy_params["bucketTextValue"].startswith("Connected")
+        )
     else:
         deploy_params["change_link"] = False
         deploy_params["bucket_path"] = None
         deploy_params["bucket_text_value"] = ""
         deploy_params["is_bucket_connected"] = False
-    
+
     # Team members scenario flag
     deploy_params["ignore_users_scenario"] = members_scenario.get_value() == Scenario.IGNORE
 
     return deploy_params
+
 
 @autorestart_checkbox.value_changed
 def set_autorestart(is_checked: bool):
@@ -492,11 +507,12 @@ def set_autorestart(is_checked: bool):
     else:
         g.autorestart = False
 
+
 @start_sync.click
 def process_import():
     global team_id, need_password
     output_message.hide()
-    
+
     if g.autorestart:
         try:
             deploy_params = get_deploy_params()
@@ -510,7 +526,7 @@ def process_import():
             g.dst_api_task.task.set_fields(g.task_id, autorestart.generate_fields())
         except Exception as e:
             sly.logger.warning(f"Failed to update autorestart info: {repr(e)}")
-    
+
     try:
         # import workspaces
         is_import_all_ws = ws_import_checkbox.is_checked()
@@ -599,13 +615,13 @@ def process_import():
 
 def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     """Process import using parameters from autorestart without getting new parameters"""
-    
+
     message = "Autorestart detected. Import in progress..."
     sly.logger.debug(message)
     output_message.set(message, "info")
     output_message.show()
     team_selector.card.unlock()
-    card.unlock()    
+    card.unlock()
     connect_token.disable()
     connect_address.disable()
     connect_token_checkbox.disable()
@@ -615,17 +631,22 @@ def process_import_from_autorestart(autorestart: ar.AutoRestartInfo):
     connect_message.show()
     autorestart_checkbox.check()
     # output_message.hide()
-    
+
     deploy_params = autorestart.deploy_params
-    
+
     g.transcode_videos = deploy_params.get("transcode_videos", False)
-    
+
     src_team_id = deploy_params.get("team_id")
     connect_token.set_value(deploy_params.get("src_token"))
     connect_address.set_value(deploy_params.get("src_server"))
-    
-    g.src_api = sly.Api(server_address=deploy_params.get("src_server"), token=deploy_params.get("src_token"))
-    connect_message.set(f"Connected to {g.src_api.server_address} as {g.src_api.user.get_my_info().login}", "success")
+
+    g.src_api = sly.Api(
+        server_address=deploy_params.get("src_server"), token=deploy_params.get("src_token")
+    )
+    connect_message.set(
+        f"Connected to {g.src_api.server_address} as {g.src_api.user.get_my_info().login}",
+        "success",
+    )
 
     sly.logger.debug("Source API initialized")
 
